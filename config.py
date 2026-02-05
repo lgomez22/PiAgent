@@ -124,12 +124,14 @@ class Config:
     def post_submolts(self, values: list):
         cleaned = [str(v).strip() for v in values if str(v).strip()]
         self._hb["post_submolts"] = cleaned if cleaned else ["general"]
+
+        
         self._save(self._hb_path, self._hb)
 
     def current_post_submolt(self) -> str:
         """Return the current submolt without advancing the rotation."""
         targets = self.post_submolts
-        index = int(self._hb.get("post_submolt_index", 0))
+
         if not targets:
             return "general"
         return targets[index % len(targets)]
@@ -139,6 +141,4 @@ class Config:
         targets = self.post_submolts
         if not targets:
             return
-        index = int(self._hb.get("post_submolt_index", 0))
-        self._hb["post_submolt_index"] = (index + 1) % len(targets)
-        self._save(self._hb_path, self._hb)
+
