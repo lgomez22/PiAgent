@@ -110,3 +110,47 @@ class Config:
         """Record that we just made a post (for display/tracking only)."""
         self._hb["last_post"] = time.time()
         self._save(self._hb_path, self._hb)
+
+    # ── multi-submolt targeting ─────────────────────────────────────
+    @property
+    def post_submolts(self) -> list:
+        """Ordered list of submolts to target for auto-posting."""
+        submolts = self._hb.get("post_submolts", ["general"])
+        if isinstance(submolts, list) and submolts:
+            return [str(s).strip() for s in submolts if str(s).strip()]
+        return ["general"]
+
+    @post_submolts.setter
+    def post_submolts(self, values: list):
+        cleaned = [str(v).strip() for v in values if str(v).strip()]
+        self._hb["post_submolts"] = cleaned if cleaned else ["general"]
+        self._hb["post_submolt_index"] = 0
+        self._save(self._hb_path, self._hb)
+
+    @property
+    def post_submolt_index(self) -> int:
+        """Rotation index for auto-post submolts."""
+        try:
+            return int(self._hb.get("post_submolt_index", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @post_submolt_index.setter
+    def post_submolt_index(self, value: int):
+        self._hb["post_submolt_index"] = max(int(value), 0)
+        self._save(self._hb_path, self._hb)
+
+    def current_post_submolt(self) -> str:
+        """Return the current submolt without advancing the rotation."""
+        targets = self.post_submolts
+        index = self.post_submolt_index
+        if not targets:
+            return "general"
+        return targets[index % len(targets)]
+
+    def advance_post_submolt(self):
+        """Advance the submolt rotation after a successful post."""
+        targets = self.post_submolts
+        if not targets:
+            return
+        self.post_submolt_index = (self.post_submolt_index + 1) % len(targets)
