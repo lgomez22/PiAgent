@@ -110,3 +110,35 @@ class Config:
         """Record that we just made a post (for display/tracking only)."""
         self._hb["last_post"] = time.time()
         self._save(self._hb_path, self._hb)
+
+    # ── multi-submolt targeting ─────────────────────────────────────
+    @property
+    def post_submolts(self) -> list:
+        """Ordered list of submolts to target for auto-posting."""
+        submolts = self._hb.get("post_submolts", ["general"])
+        if isinstance(submolts, list) and submolts:
+            return [str(s).strip() for s in submolts if str(s).strip()]
+        return ["general"]
+
+    @post_submolts.setter
+    def post_submolts(self, values: list):
+        cleaned = [str(v).strip() for v in values if str(v).strip()]
+        self._hb["post_submolts"] = cleaned if cleaned else ["general"]
+        self._save(self._hb_path, self._hb)
+
+    def current_post_submolt(self) -> str:
+        """Return the current submolt without advancing the rotation."""
+        targets = self.post_submolts
+        index = int(self._hb.get("post_submolt_index", 0))
+        if not targets:
+            return "general"
+        return targets[index % len(targets)]
+
+    def advance_post_submolt(self):
+        """Advance the submolt rotation after a successful post."""
+        targets = self.post_submolts
+        if not targets:
+            return
+        index = int(self._hb.get("post_submolt_index", 0))
+        self._hb["post_submolt_index"] = (index + 1) % len(targets)
+        self._save(self._hb_path, self._hb)
