@@ -200,10 +200,7 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
     if cmd == "post-targets":
         if len(parts) == 1:
             targets = cfg.post_submolts
-            current_index = cfg.post_submolt_index
-            print("[Agent] Auto-post submolt targets:")
-            for idx, target in enumerate(targets):
-                marker = " (current)" if idx == current_index else ""
+
                 print(f"  {idx + 1}. {target}{marker}")
             print("  Set with: post-targets set general,raspberrypi,ai")
             return True
