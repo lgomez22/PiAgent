@@ -87,6 +87,7 @@ def _print_banner():
 ║    engage-on/off        Toggle auto-engage    ║
 ║    engage-status        Check engage status   ║
 ║    post-now             Force post creation   ║
+║    post-targets         Set auto-post targets ║
 ║    groq-setup           Configure Groq API    ║
 ║    groq-status          Check LLM status      ║
 ║    skill-update         View cached skills    ║
@@ -185,14 +186,41 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
         llm = LLMClient(cfg)
         title, content = llm.generate_post(use_llm=True)
         print(f"[Agent]   Topic: \"{title}\"")
-        submolt = "general"
+        submolt = cfg.current_post_submolt()
         resp = _create_post(submolt, title, content, cfg.api_key)
         if resp.get("success"):
             post_id = resp.get("post", {}).get("id", "?")
             print(f"[Agent] ✓ Posted! https://www.moltbook.com/m/{submolt}/{post_id}")
             cfg.touch_last_post()
+            cfg.advance_post_submolt()
         else:
             print(f"[Agent] ✗ Failed: {resp.get('error', 'unknown')}")
+        return True
+
+    if cmd == "post-targets":
+        if len(parts) == 1:
+            targets = cfg.post_submolts
+            current = cfg.current_post_submolt()
+            print("[Agent] Auto-post submolt targets:")
+            for idx, target in enumerate(targets):
+                marker = " (current)" if target == current else ""
+                print(f"  {idx + 1}. {target}{marker}")
+            print("  Set with: post-targets set general,raspberrypi,ai")
+            return True
+
+        action = parts[1].lower()
+        payload = parts[2] if len(parts) > 2 else ""
+
+        if action in ("set", "replace"):
+            targets = [t.strip() for t in payload.split(",") if t.strip()]
+            if not targets:
+                print("[Agent] Usage: post-targets set general,raspberrypi,ai")
+                return True
+            cfg.post_submolts = targets
+            print(f"[Agent] ✓ Auto-post targets updated: {', '.join(cfg.post_submolts)}")
+            return True
+
+        print("[Agent] Usage: post-targets set general,raspberrypi,ai")
         return True
 
     # --- heartbeat ---
