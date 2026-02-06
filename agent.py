@@ -199,25 +199,74 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
 
     if cmd == "post-targets":
         if len(parts) == 1:
+            # Display current targets
             targets = cfg.post_submolts
-
+            current = cfg.current_post_submolt()
+            print("[Agent] Current auto-post targets (rotation):")
+            for idx, target in enumerate(targets):
+                marker = " ← current" if target == current else ""
                 print(f"  {idx + 1}. {target}{marker}")
-            print("  Set with: post-targets set general,raspberrypi,ai")
+            print("\n  Commands:")
+            print("    post-targets set general,raspberrypi,ai")
+            print("    post-targets list     (fetch available submolts from API)")
             return True
 
         action = parts[1].lower()
-        payload = parts[2] if len(parts) > 2 else ""
 
-        if action in ("set", "replace"):
+        if action == "list":
+            # Fetch available submolts from API
+            print("[Agent] Fetching submolts from Moltbook API...")
+            import json, urllib.request
+            try:
+                url = "https://www.moltbook.com/api/v1/submolts"
+                req = urllib.request.Request(url)
+                req.add_header("Authorization", f"Bearer {cfg.api_key}")
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    data = json.loads(r.read().decode())
+                    submolts = data.get("submolts", data.get("data", []))
+                    if isinstance(submolts, list):
+                        names = [s.get("name") for s in submolts if s.get("name")]
+                        cfg.cached_submolts = names  # Cache them
+                        print(f"[Agent] Found {len(names)} submolts:")
+                        for i, name in enumerate(sorted(names), 1):
+                            print(f"  {i}. {name}")
+                        print(f"\n  Use: post-targets set {','.join(names[:3])} (example)")
+                    else:
+                        print("[Agent] ✗ Unexpected API response format")
+            except Exception as e:
+                print(f"[Agent] ✗ Failed to fetch submolts: {e}")
+            return True
+
+        if action in ("set", "replace", "add"):
+            payload = parts[2] if len(parts) > 2 else ""
+            
+            # Parse comma-separated list
             targets = [t.strip() for t in payload.split(",") if t.strip()]
             if not targets:
                 print("[Agent] Usage: post-targets set general,raspberrypi,ai")
                 return True
+            
+            # Validate against cached submolts if available
+            cached = cfg.cached_submolts
+            if cached:
+                invalid = [t for t in targets if t not in cached]
+                if invalid:
+                    print(f"[Agent] ⚠️  Warning: Unknown submolts: {', '.join(invalid)}")
+                    print(f"         Run 'post-targets list' to see available submolts")
+                    response = input("         Continue anyway? (y/n): ").strip().lower()
+                    if response != 'y':
+                        print("[Agent] Cancelled.")
+                        return True
+            
             cfg.post_submolts = targets
             print(f"[Agent] ✓ Auto-post targets updated: {', '.join(cfg.post_submolts)}")
+            print(f"         Rotation will cycle: {' → '.join(cfg.post_submolts)} → (repeat)")
             return True
 
-        print("[Agent] Usage: post-targets set general,raspberrypi,ai")
+        print("[Agent] Unknown action. Usage:")
+        print("  post-targets              (show current)")
+        print("  post-targets list         (fetch from API)")
+        print("  post-targets set a,b,c    (set rotation)")
         return True
 
     # --- heartbeat ---

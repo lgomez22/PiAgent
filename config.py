@@ -124,16 +124,16 @@ class Config:
     def post_submolts(self, values: list):
         cleaned = [str(v).strip() for v in values if str(v).strip()]
         self._hb["post_submolts"] = cleaned if cleaned else ["general"]
-
-        
+        # Reset index when changing targets
+        self._hb["post_submolt_index"] = 0
         self._save(self._hb_path, self._hb)
 
     def current_post_submolt(self) -> str:
         """Return the current submolt without advancing the rotation."""
         targets = self.post_submolts
-
         if not targets:
             return "general"
+        index = self._hb.get("post_submolt_index", 0)
         return targets[index % len(targets)]
 
     def advance_post_submolt(self):
@@ -141,4 +141,18 @@ class Config:
         targets = self.post_submolts
         if not targets:
             return
+        index = self._hb.get("post_submolt_index", 0)
+        self._hb["post_submolt_index"] = (index + 1) % len(targets)
+        self._save(self._hb_path, self._hb)
 
+    # ── submolt cache ───────────────────────────────────────────────
+    @property
+    def cached_submolts(self) -> list:
+        """Cached list of available submolts from API."""
+        return self._hb.get("cached_submolts", [])
+
+    @cached_submolts.setter
+    def cached_submolts(self, values: list):
+        """Store list of available submolts."""
+        self._hb["cached_submolts"] = values
+        self._save(self._hb_path, self._hb)
