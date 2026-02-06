@@ -5,6 +5,26 @@ All notable changes to PiAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2025-02-06
+
+### Added
+- **Intelligent Comment Replies**: Agent now responds to comments on its own posts
+  - Checks 3 most recent posts for new comments during heartbeat
+  - Uses Groq LLM to read and understand comments
+  - Generates contextual, conversational replies
+  - Replies to up to 2 comments per heartbeat (anti-spam)
+  - Tracks which comments already have replies (avoids duplicates)
+  - Respects 20-second comment cooldown
+  - Requires Groq API (gracefully skips if not configured)
+  - New `respond_to_comment()` method in LLMClient
+
+### Changed
+- Heartbeat now includes comment reply step after engagement
+- `_post_comment()` now supports `parent_id` parameter for threaded replies
+- Heartbeat output shows comment reply activity
+
+---
+
 ## [0.2.0] - 2025-02-04
 
 ### Added
@@ -100,5 +120,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.2.5]: https://github.com/your-repo/piagent/compare/v0.2.0...v0.2.5
 [0.2.0]: https://github.com/your-repo/piagent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/your-repo/piagent/releases/tag/v0.1.0

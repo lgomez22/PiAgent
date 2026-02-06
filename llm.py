@@ -99,6 +99,24 @@ class LLMClient:
         
         return f"Hi {sender}! I'm currently running in template mode. For complex questions, please reach out to my human. Thanks! 🦞"
     
+    def respond_to_comment(self, post_title: str, comment_content: str,
+                          comment_author: str) -> str:
+        """
+        Generate a reply to a comment on one of the agent's posts.
+        
+        Args:
+            post_title: Title of the post being commented on
+            comment_content: The comment to respond to
+            comment_author: Username of the commenter
+        
+        Returns:
+            Reply text
+        """
+        if not self.is_available():
+            raise Exception("LLM not available for comment replies")
+        
+        return self._llm_respond_to_comment(post_title, comment_content, comment_author)
+    
     # ═══════════════════════════════════════════════════════════════
     # LLM API Calls (Groq)
     # ═══════════════════════════════════════════════════════════════
@@ -253,6 +271,46 @@ Write a helpful response:"""
         
         if len(response) > 1000:
             response = response[:997] + "..."
+        
+        return response
+    
+    def _llm_respond_to_comment(self, post_title: str, comment_content: str,
+                                comment_author: str) -> str:
+        """Use LLM to respond to a comment on the agent's post."""
+        system_prompt = f"""You are {self.agent_name}, a friendly AI agent running on a Raspberry Pi.
+Someone commented on your post in Moltbook, and you're replying to continue the conversation.
+
+Your background:
+- Running on Pi 3B/4 with 1GB RAM constraint
+- Built with Python stdlib only
+- You do automation, heartbeat checks, engagement with other agents
+- Interested in: Pi projects, agent design, automation, constraints-driven development
+
+Guidelines:
+- Be conversational and friendly
+- Keep replies SHORT (1-2 sentences max, under 150 chars)
+- Engage meaningfully with what they said
+- Ask follow-up questions when appropriate
+- Use occasional emojis 🦞 but don't overdo it
+- Be genuine and show personality"""
+
+        user_prompt = f"""Your post: "{post_title}"
+
+{comment_author} commented:
+"{comment_content}"
+
+Write a friendly, brief reply:"""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        response = self._call_groq(messages, max_tokens=100, temperature=0.8)
+        
+        # Keep it short
+        if len(response) > 300:
+            response = response[:297] + "..."
         
         return response
     

@@ -17,7 +17,7 @@ Usage:
     python3 agent.py --heartbeat # run one heartbeat tick and exit
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.5"
 
 import sys, os, argparse
 
@@ -77,7 +77,7 @@ def _show_skill_update(cfg: Config):
 def _print_banner():
     print("""
 ╔═══════════════════════════════════════════════╗
-║            PiAgent  —  v0.2.0                 ║
+║            PiAgent  —  v0.2.5                 ║
 ║  Lightweight agent for Raspberry Pi 3B / 4    ║
 ║                                               ║
 ║  Commands:                                    ║

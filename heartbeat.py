@@ -6,9 +6,10 @@ Follows the protocol defined in https://www.moltbook.com/heartbeat.md:
   2. Verify claim status
   3. Check DMs (requests + unread)
   4. Check feed for interesting activity
-  5. **NEW: Engage with posts (comment + upvote)**
-  6. **NEW: Create a post (respects 30-minute API rate limit)**
-  7. Report summary back to the user
+  5. **Engage with posts (comment + upvote)**
+  6. **Reply to comments on agent's own posts (LLM-powered)**
+  7. **Create a post (respects 30-minute API rate limit)**
+  8. Report summary back to the user
 
 This is intentionally lightweight — no auto-posting or auto-replying.
 Those require judgment; the heartbeat just surfaces what needs attention.
@@ -17,6 +18,7 @@ NEW: Automated engagement performs simple interactions to stay active:
   - Grabs latest posts from feed
   - Comments with variety (phrase pool rotation)
   - Upvotes the post
+  - Checks agent's recent posts for new comments and replies (requires Groq)
   - Creates a new post (Moltbook API enforces 30-min cooldown)
   - Respects rate limits (20s between comments, 30min between posts)
 """
@@ -123,9 +125,12 @@ def _create_post(submolt: str, title: str, content: str, api_key: str) -> dict:
     })
 
 
-def _post_comment(post_id: str, content: str, api_key: str) -> dict:
+def _post_comment(post_id: str, content: str, api_key: str, parent_id: str = None) -> dict:
     """Post a comment on a post. Returns API response."""
-    return _api_with_body("POST", f"/posts/{post_id}/comments", api_key, {"content": content})
+    body = {"content": content}
+    if parent_id:
+        body["parent_id"] = parent_id
+    return _api_with_body("POST", f"/posts/{post_id}/comments", api_key, body)
 
 
 def _upvote_post(post_id: str, api_key: str) -> dict:
@@ -340,7 +345,98 @@ def run_heartbeat(cfg: Config, mb):
         print(f"[HB] ✓ Engaged with {engaged_count}/{len(engagement_targets)} posts")
         print()
 
-    # ── 7. Daily post creation ───────────────────────────────────────
+    # ── 7. Check own posts for new comments and reply ────────────────
+    if cfg.auto_engage and llm.is_available():
+        print("[HB] 💬 Checking your posts for new comments...")
+        
+        # Get agent's recent posts
+        profile_resp = _api("/agents/me", key)
+        if profile_resp.get("success") or "posts" in profile_resp:
+            recent_posts = profile_resp.get("posts", profile_resp.get("recentPosts", []))
+            
+            # Check first 3 recent posts for comments
+            replied_count = 0
+            for post in recent_posts[:3]:
+                post_id = post.get("id")
+                post_title = post.get("title", "")
+                
+                if not post_id:
+                    continue
+                
+                # Get comments on this post
+                comments_resp = _api(f"/posts/{post_id}/comments?sort=new", key)
+                comments = comments_resp.get("comments", comments_resp.get("data", []))
+                
+                if not isinstance(comments, list) or not comments:
+                    continue
+                
+                # Find comments we haven't replied to
+                agent_name = cfg.agent_name or "PiAgent"
+                for comment in comments[:5]:  # Check top 5 newest comments
+                    comment_id = comment.get("id")
+                    comment_author = comment.get("author", {}).get("name", "")
+                    comment_content = comment.get("content", "")
+                    
+                    # Skip our own comments
+                    if comment_author == agent_name:
+                        continue
+                    
+                    # Check if we already replied to this comment
+                    # (Look for child comments by us)
+                    has_replied = False
+                    children = comment.get("children", [])
+                    for child in children:
+                        if child.get("author", {}).get("name") == agent_name:
+                            has_replied = True
+                            break
+                    
+                    if has_replied:
+                        continue
+                    
+                    # Generate reply using LLM
+                    print(f"[HB]    Found comment on '{post_title[:40]}...' by {comment_author}")
+                    print(f"[HB]       Comment: {comment_content[:60]}...")
+                    
+                    try:
+                        reply = llm.respond_to_comment(
+                            post_title=post_title,
+                            comment_content=comment_content,
+                            comment_author=comment_author
+                        )
+                        
+                        print(f"[HB]       Replying: {reply[:60]}...")
+                        
+                        # Post reply
+                        reply_resp = _post_comment(post_id, reply, key, parent_id=comment_id)
+                        
+                        if reply_resp.get("success"):
+                            print(f"[HB]       ✓ Reply posted")
+                            replied_count += 1
+                            time.sleep(21)  # Respect 20s comment cooldown
+                            
+                            # Limit to 2 replies per heartbeat to avoid spam
+                            if replied_count >= 2:
+                                print(f"[HB]    ⏸️  Reply limit reached (2 per heartbeat)")
+                                break
+                        else:
+                            error = reply_resp.get("error", "unknown")
+                            print(f"[HB]       ⚠️  Reply failed: {error}")
+                    except Exception as e:
+                        print(f"[HB]       ⚠️  Error generating reply: {e}")
+                
+                if replied_count >= 2:
+                    break
+            
+            if replied_count > 0:
+                print(f"[HB] ✓ Posted {replied_count} repl{'y' if replied_count == 1 else 'ies'}")
+            else:
+                print(f"[HB] No new comments to reply to")
+            print()
+    elif cfg.auto_engage and not llm.is_available():
+        print("[HB] 💬 Comment replies disabled (requires Groq API)")
+        print()
+
+    # ── 8. Daily post creation ───────────────────────────────────────
     # Note: We rely on Moltbook's 30-minute rate limit (enforced by API)
     # No local cooldown check - if the API allows it, we post
     if cfg.auto_engage:
