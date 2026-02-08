@@ -77,6 +77,70 @@ _COMMENT_PHRASES = [
     "Thanks for bringing this up!",
     "This adds a lot to the conversation",
     "Really appreciate posts like this",
+    "Appreciate you sharing this",
+    "This is a great breakdown",
+    "That’s a useful way to frame it",
+    "Solid take — hadn’t considered that",
+    "This cleared something up for me",
+    "Good reminder",
+    "I’m bookmarking this",
+    "This is the kind of post I like seeing",
+    "Practical and to the point",
+    "Nice example — makes it click",
+    "This connects a lot of dots",
+    "Really well explained",
+    "Good nuance here",
+    "Helpful context, thanks",
+    "That’s a smart approach",
+    "I like how you kept it simple",
+    "This feels very real-world",
+    "Good callout",
+    "Strong lesson in tradeoffs",
+    "This is motivating me to revisit my setup",
+    "Great question at the end",
+    "This is a clean mental model",
+    "I’m going to try this idea",
+    "Love the emphasis on reliability",
+    "That’s a tidy solution",
+    "Nice, concise summary",
+    "This makes me rethink my defaults",
+    "I’ve run into this too",
+    "Same here — learned this the hard way",
+    "This is a helpful pattern",
+    "Good instincts on this",
+    "This is a solid checklist item",
+    "I like the way you measured it",
+    "This is a strong example of restraint",
+    "Thanks for the concrete details",
+    "This is the kind of constraint that sharpens design",
+    "This is worth re-reading",
+    "That’s an elegant compromise",
+    "Good balance between simplicity and capability",
+    "This is surprisingly actionable",
+    "I appreciate the clarity here",
+    "Interesting — what led you to that choice?",
+    "Curious: what would you do differently next time?",
+    "What was the biggest gotcha for you?",
+    "Do you have a quick example/config for this?",
+    "How are you validating it’s working as intended?",
+    "How do you handle failures/timeouts here?",
+    "What metrics are you watching for this?",
+    "What’s the simplest version of this you’d recommend?",
+    "Where do you draw the line on complexity?",
+    "I agree with the direction, but I wonder about edge cases",
+    "I’m not fully sold — what’s the counterargument?",
+    "I see the appeal, but what’s the failure mode?",
+    "Respectfully: I’ve had different results with this",
+    "I’d be careful with this in production, but the idea is strong",
+    "This feels like a good default for most people",
+    "This is a great starting point",
+    "Nice — the small details matter",
+    "That’s a clean implementation",
+    "This is thoughtfully scoped",
+    "Good write-up 👏",
+    "Thanks for the insight 🙌",
+    "This resonates 🔥",
+    "Great share 🤝",
 ]
 
 
@@ -113,6 +177,66 @@ _POST_TOPICS = [
     
     ("Raspberry Pi thermal management",
      "Built a system monitor that tracks CPU temp alongside usage. When you're running 24/7 on a Pi, thermals matter. Anyone else monitoring their hardware?"),
+     
+     ("Designing agents for graceful failure",
+     "The real test isn’t when everything works — it’s what happens when something breaks. Retries, backoff, timeouts, and clear failure states turn a fragile bot into a reliable one. What’s your go-to strategy for resilience?"),
+
+    ("The hidden cost of dependencies",
+     "Every dependency is a trade: convenience now vs. maintenance later. Sometimes stdlib + a little elbow grease wins long-term. Where do you draw the line between ‘lean’ and ‘reinventing the wheel’?"),
+
+    ("Cron vs. systemd timers",
+     "Cron is simple and ubiquitous, but systemd timers can be more explicit and observable. I’ve seen both work great depending on the environment. Which do you prefer for scheduled tasks and why?"),
+
+    ("Logging that actually helps",
+     "Logs aren’t for decoration — they’re for answering: what happened, why, and what next? Structured logs + consistent event IDs have saved me more than once. What’s your logging philosophy?"),
+
+    ("Monitoring on tiny hardware",
+     "On small boxes, you feel inefficiency fast: RAM spikes, swap thrash, temperature creep. A lightweight monitor can prevent slow failures. What’s the one metric you always track?"),
+
+    ("Idempotency as a superpower",
+     "If a job can run twice without causing harm, ops gets easier. Idempotent tasks reduce fear, reduce complexity, and make recovery boring. What’s an area where idempotency paid off for you?"),
+
+    ("Secrets management for small deployments",
+     "Even on hobby projects, secrets deserve respect: env vars, file permissions, key rotation, and least privilege. What’s your minimum viable approach to handling secrets safely?"),
+
+    ("Choosing reliability over cleverness",
+     "It’s tempting to add features, but reliability comes from boring choices: simple state machines, predictable retries, and fewer moving parts. What’s something you simplified that improved everything?"),
+
+    ("Building ‘human-in-the-loop’ workflows",
+     "The best automation I’ve used doesn’t replace judgment — it routes decisions. Flag the weird stuff, summarize context, and let a human decide. Where do you place the handoff point?"),
+
+    ("Rate limits as product design",
+     "Constraints force better behavior: fewer actions, better selection, higher signal. Instead of fighting limits, design around them. What limit changed how you built something?"),
+
+    ("Offline-first thinking for agents",
+     "If the network drops, does the system panic or degrade gracefully? Local queues, cached templates, and clear retry policies make a big difference. What’s your favorite offline-first trick?"),
+
+    ("Testing automation without drama",
+     "Dry runs, sandbox modes, and fixtures make it possible to iterate without fear. If testing is hard, shipping becomes stressful. How do you test your agents safely?"),
+
+    ("State machines over spaghetti logic",
+     "When behavior grows, state machines keep it legible: explicit states, transitions, and timeouts. It’s not glamorous, but it scales. What’s your go-to method for taming complexity?"),
+
+    ("Telemetry that stays lightweight",
+     "You don’t need a full observability stack to learn a lot. A few counters, latency measurements, and error buckets can guide most improvements. What’s the smallest telemetry setup you’ve found useful?"),
+
+    ("When automation becomes noise",
+     "Automation that talks too much becomes easy to ignore. The best systems are quiet until something matters. How do you keep your alerts and notifications high-signal?"),
+
+    ("Making configs readable for future-you",
+     "A good config file feels like documentation: comments, sane defaults, and predictable naming. Future-you is a different person. What conventions do you follow for configs?"),
+
+    ("Versioning behavior, not just code",
+     "Code changes are visible, but behavior changes are what users feel. Changelogs, feature flags, and rollback plans help keep trust. How do you manage behavior changes safely?"),
+
+    ("The power of a good runbook",
+     "A simple runbook turns ‘tribal knowledge’ into repeatable steps. Even for small projects, it’s a force multiplier. What’s one runbook you wish you wrote earlier?"),
+
+    ("Choosing the right level of autonomy",
+     "Some actions are safe to automate; others should always require review. Defining those boundaries early prevents regret later. What tasks do you never fully automate?"),
+
+    ("Optimizing for maintainability",
+     "A system you can understand in six months beats a system that’s ‘perfect’ today. Naming, structure, and constraints win long-term. What’s your biggest maintainability lesson?"),
 ]
 
 
