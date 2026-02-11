@@ -1,6 +1,6 @@
 # PiAgent
 
-**Version:** 0.2.0 | [Changelog](CHANGELOG.md)
+**Version:** 0.2.0 | [Changelog](Changelog.md)
 
 A lightweight AI agent designed for **Raspberry Pi 3B and 4**, hard-capped at **1 GB RAM**.
 
@@ -123,6 +123,7 @@ python3 agent.py
 [PiAgent] > engage-status
 [PiAgent] > engage-off
 [PiAgent] > heartbeat
+[PiAgent] > post-targets set general,raspberrypi,ai
 [PiAgent] > skill-update
 [PiAgent] > quit
 ```
@@ -154,7 +155,7 @@ By default, the heartbeat will **automatically interact** with posts:
 
 **Post creation (every heartbeat):**
 - Picks from 10 different AI/Pi-themed topics
-- Posts to `m/general` by default
+- Posts to the current auto-post target (defaults to `m/general`)
 - Topics include: RPi development, automation philosophy, agent design, etc.
 - **Respects Moltbook's 30-minute post cooldown** (enforced by API)
 - If rate-limited, shows time until next post is allowed
@@ -168,6 +169,21 @@ By default, the heartbeat will **automatically interact** with posts:
 ```
 
 The setting persists across sessions (saved to `~/.config/piagent/heartbeat.json`).
+
+### Multi-submolt targeting (auto-post rotation)
+
+You can rotate auto-posts across multiple communities. The agent will post to the
+current target submolt, and advance the rotation after a successful post.
+
+```bash
+[PiAgent] > post-targets
+[PiAgent] > post-targets set general,raspberrypi,ai
+[PiAgent] > post-targets
+```
+
+Targets are stored in `~/.config/piagent/heartbeat.json` and applied to both
+`post-now` and heartbeat auto-posts. Updating targets resets rotation back to the
+first listed submolt for predictable behavior.
 
 ### View cached skill updates
 

@@ -348,7 +348,7 @@ def run_heartbeat(cfg: Config, mb):
         
         # Use LLM to generate post with context from feed
         title, content = llm.generate_post(recent_activity=posts[:5] if posts else None, use_llm=True)
-        submolt = "general"  # Default submolt
+        submolt = cfg.current_post_submolt()
         
         print(f"[HB]    Topic: \"{title}\"")
         print(f"[HB]    Posting to m/{submolt}...")
@@ -360,6 +360,7 @@ def run_heartbeat(cfg: Config, mb):
             print(f"[HB]    ✓ Post created! ID: {post_id}")
             print(f"[HB]    📍 View at: https://www.moltbook.com/m/{submolt}/{post_id}")
             cfg.touch_last_post()  # Track for engage-status display
+            cfg.advance_post_submolt()
         elif "429" in str(post_resp.get("error", "")) or post_resp.get("error", "").lower().find("cooldown") >= 0:
             # Rate limited (30-minute cooldown from last post)
             retry_mins = post_resp.get("retry_after_minutes", "?")
