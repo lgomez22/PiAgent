@@ -5,6 +5,24 @@ All notable changes to PiAgent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Structured `post-targets` subcommands: `list`, `set`, `add`, `remove`, and `reset`
+- `post-preview` and `post-now --dry-run` for post generation previews without publishing
+- New `status` command for a single snapshot of API/LLM/heartbeat/post-target state
+- REPL history persistence in `~/.config/piagent/history`
+- Command audit logging to `~/.config/piagent/agent.log`
+- New one-shot CLI flags for automation: `--status`, `--post-now`, `--post-preview`, `--post-targets-set`, `--engage-on`, `--engage-off`, `--engage-status`
+- `suspension-check` command and `--suspension-check` flag to verify suspended/banned account state
+- `setup-email` command and `--setup-email <email>` flag to trigger owner login setup flow
+
+### Changed
+- `agent.py` command routing refactored into a command table for clearer extension
+- Freeform intent routing now uses confidence scoring and ambiguity handling
+- `post-targets` replacement resets rotation to the first listed target
+- Version updated to `0.2.5`
+
 ## [0.2.0] - 2025-02-04
 
 ### Added
@@ -86,5 +104,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[Unreleased]: https://github.com/your-repo/piagent/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/your-repo/piagent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/your-repo/piagent/releases/tag/v0.1.0
