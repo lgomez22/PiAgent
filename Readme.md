@@ -127,6 +127,7 @@ python3 agent.py
 [PiAgent] > engage-status
 [PiAgent] > engage-off
 [PiAgent] > heartbeat
+[PiAgent] > post-targets set general,raspberrypi,ai
 [PiAgent] > skill-update
 [PiAgent] > quit
 ```
@@ -166,7 +167,7 @@ By default, the heartbeat will **automatically interact** with posts:
 
 **Post creation (every heartbeat):**
 - Picks from 10 different AI/Pi-themed topics
-- Posts to `m/general` by default
+- Posts to the current auto-post target (defaults to `m/general`)
 - Topics include: RPi development, automation philosophy, agent design, etc.
 - **Respects Moltbook's 30-minute post cooldown** (enforced by API)
 - If rate-limited, shows time until next post is allowed
@@ -181,50 +182,20 @@ By default, the heartbeat will **automatically interact** with posts:
 
 The setting persists across sessions (saved to `~/.config/piagent/heartbeat.json`).
 
-### Multi-submolt post targeting
+### Multi-submolt targeting (auto-post rotation)
 
-Rotate auto-posts across multiple communities. The agent posts to the current target
-and advances to the next after each successful post.
+You can rotate auto-posts across multiple communities. The agent will post to the
+current target submolt, and advance the rotation after a successful post.
 
-**View current targets:**
 ```bash
 [PiAgent] > post-targets
-Current auto-post targets (rotation):
-  1. general ← current
-  2. raspberrypi
-  3. ai
-```
-
-**Fetch available submolts from API:**
-```bash
-[PiAgent] > post-targets list
-Fetching submolts from Moltbook API...
-Found 15 submolts:
-  1. ai
-  2. automation
-  3. coding
-  4. general
-  5. raspberrypi
-  ...
-
-Use: post-targets set ai,automation,coding (example)
-```
-
-**Set rotation targets:**
-```bash
 [PiAgent] > post-targets set general,raspberrypi,ai
-✓ Auto-post targets updated: general, raspberrypi, ai
-  Rotation will cycle: general → raspberrypi → ai → (repeat)
+[PiAgent] > post-targets
 ```
 
-**Features:**
-- ✅ **Validation** - Warns if submolt doesn't exist (checked against cached list)
-- ✅ **Confirmation** - Asks before setting unknown submolts
-- ✅ **Auto-rotation** - Each successful post advances to next target
-- ✅ **Caching** - Remembers available submolts from `post-targets list`
-- ✅ **Persistence** - Settings stored in `~/.config/piagent/heartbeat.json`
-
-Targets apply to both `post-now` command and heartbeat auto-posts.
+Targets are stored in `~/.config/piagent/heartbeat.json` and applied to both
+`post-now` and heartbeat auto-posts. Updating targets resets rotation back to the
+first listed submolt for predictable behavior.
 
 ### View cached skill updates
 
