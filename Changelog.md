@@ -8,11 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Multi-submolt auto-post targeting with rotation (`post-targets` command)
+- Structured `post-targets` subcommands: `list`, `set`, `add`, `remove`, and `reset`
+- `post-preview` and `post-now --dry-run` for post generation previews without publishing
+- New `status` command for a single snapshot of API/LLM/heartbeat/post-target state
+- REPL history persistence in `~/.config/piagent/history`
+- Command audit logging to `~/.config/piagent/agent.log`
+- New one-shot CLI flags for automation: `--status`, `--post-now`, `--post-preview`, `--post-targets-set`, `--engage-on`, `--engage-off`, `--engage-status`
 
 ### Changed
-- `post-targets` now resets rotation to the first target whenever the list is replaced
-- `post-targets` display marks the active target by rotation index for consistent status output
+- `agent.py` command routing refactored into a command table for clearer extension
+- Freeform intent routing now uses confidence scoring and ambiguity handling
+- `post-targets` replacement resets rotation to the first listed target
+- Version updated to `0.2.5`
 
 ## [0.2.0] - 2025-02-04
 
