@@ -21,9 +21,12 @@ __version__ = "0.2.5"
 
 import argparse
 import atexit
+import json
 import os
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 import readline
 
@@ -133,6 +136,8 @@ def _print_banner():
 ║    status               System health summary ║
 ║    engage-on/off        Toggle auto-engage    ║
 ║    engage-status        Check engage status   ║
+║    suspension-check     Check account status  ║
+║    setup-email          Setup owner login     ║
 ║    post-now [--dry-run] Create post now       ║
 ║    post-targets ...     Manage post targets   ║
 ║    groq-setup           Configure Groq API    ║
@@ -277,6 +282,83 @@ def _handle_post_targets(cfg: Config, raw_args: str):
     print("[Agent] Unknown post-targets action. Try: list, set, add, remove, reset")
 
 
+
+def _check_suspension_status(cfg: Config):
+    """Check whether the agent account is suspended or banned."""
+    if not cfg.api_key:
+        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
+        return
+
+    print("[Agent] Checking account status...")
+    try:
+        req = urllib.request.Request("https://www.moltbook.com/api/v1/agents/me")
+        req.add_header("Authorization", f"Bearer {cfg.api_key}")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode())
+
+        agent_info = data.get("agent", data) if isinstance(data, dict) else {}
+        suspended = bool(agent_info.get("suspended", False))
+        banned = bool(agent_info.get("banned", False))
+
+        if suspended or banned:
+            status = "SUSPENDED" if suspended else "BANNED"
+            reason = agent_info.get("suspension_reason") or agent_info.get("ban_reason") or "Unknown"
+            print(f"[Agent] 🚨 Status: {status}")
+            print(f"        Reason: {reason}")
+            print(f"        Auto-engagement: {'ENABLED' if cfg.auto_engage else 'DISABLED'}")
+            print("        💡 Run 'engage-off' if needed.")
+            return
+
+        print("[Agent] ✓ Account status: Active")
+        print("        No suspension or ban detected")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="ignore")
+        print(f"[Agent] ✗ HTTP Error {e.code}: {body or e.reason}")
+    except Exception as e:
+        print(f"[Agent] ✗ Failed to check status: {e}")
+
+
+def _setup_owner_email(cfg: Config, email: str = ""):
+    """Setup owner email so humans can manage the agent account."""
+    if not cfg.api_key:
+        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
+        return
+
+    print("[Agent] Owner Email Setup")
+    print("        This allows your human to log in to Moltbook and manage your account.")
+
+    value = email.strip() if email else input("        Enter owner email: ").strip()
+    if not value or "@" not in value:
+        print("[Agent] ✗ Invalid email address")
+        return
+
+    print(f"[Agent] Setting up email: {value}")
+    try:
+        data = json.dumps({"email": value}).encode()
+        req = urllib.request.Request(
+            "https://www.moltbook.com/api/v1/agents/me/setup-owner-email",
+            data=data,
+            method="POST",
+        )
+        req.add_header("Authorization", f"Bearer {cfg.api_key}")
+        req.add_header("Content-Type", "application/json")
+
+        with urllib.request.urlopen(req, timeout=10) as r:
+            response = json.loads(r.read().decode())
+
+        if response.get("success"):
+            print("[Agent] ✓ Email setup initiated!")
+            print(f"        📧 Check {value} for a verification link")
+            print("        Then verify X and log in to Moltbook.")
+            return
+
+        print(f"[Agent] ✗ Setup failed: {response.get('error', 'unknown')}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="ignore")
+        print(f"[Agent] ✗ HTTP Error {e.code}: {body or e.reason}")
+    except Exception as e:
+        print(f"[Agent] ✗ Failed: {e}")
+
 def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) -> bool:
     """Route a user line to the right handler. Returns False to quit."""
     parts = line.strip().split(None, 2)
@@ -315,6 +397,12 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
     def cmd_status():
         _show_status(cfg)
 
+    def cmd_suspension_check():
+        _check_suspension_status(cfg)
+
+    def cmd_setup_email():
+        _setup_owner_email(cfg)
+
     def cmd_groq_setup():
         print("[Agent] Groq API Setup")
         print("        Get your free API key at: https://console.groq.com/keys")
@@ -350,6 +438,8 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
         "engage-off": cmd_engage_off,
         "engage-status": cmd_engage_status,
         "status": cmd_status,
+        "suspension-check": cmd_suspension_check,
+        "setup-email": cmd_setup_email,
         "groq-setup": cmd_groq_setup,
         "groq-status": cmd_groq_status,
         "heartbeat": cmd_heartbeat,
@@ -496,6 +586,14 @@ def _run_noninteractive_action(args, cfg: Config, mb: MoltbookClient):
         _show_status(cfg)
         return True
 
+    if args.suspension_check:
+        _check_suspension_status(cfg)
+        return True
+
+    if args.setup_email:
+        _setup_owner_email(cfg, args.setup_email)
+        return True
+
     return False
 
 
@@ -510,6 +608,8 @@ def main():
     parser.add_argument("--engage-status", action="store_true", help="Show engagement status and exit")
     parser.add_argument("--post-targets-set", type=str, default="", help="Replace auto-post targets, comma-separated")
     parser.add_argument("--status", action="store_true", help="Show one-line system snapshot and exit")
+    parser.add_argument("--suspension-check", action="store_true", help="Check account suspension/ban status and exit")
+    parser.add_argument("--setup-email", type=str, default="", help="Setup owner email and exit")
     args = parser.parse_args()
 
     cfg = Config()

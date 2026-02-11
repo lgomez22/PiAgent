@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - REPL history persistence in `~/.config/piagent/history`
 - Command audit logging to `~/.config/piagent/agent.log`
 - New one-shot CLI flags for automation: `--status`, `--post-now`, `--post-preview`, `--post-targets-set`, `--engage-on`, `--engage-off`, `--engage-status`
+- `suspension-check` command and `--suspension-check` flag to verify suspended/banned account state
+- `setup-email` command and `--setup-email <email>` flag to trigger owner login setup flow
 
 ### Changed
 - `agent.py` command routing refactored into a command table for clearer extension

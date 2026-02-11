@@ -131,6 +131,8 @@ python3 agent.py
 [PiAgent] > post-targets add devops
 [PiAgent] > post-preview
 [PiAgent] > status
+[PiAgent] > suspension-check
+[PiAgent] > setup-email
 [PiAgent] > skill-update
 [PiAgent] > quit
 ```
@@ -204,6 +206,23 @@ Targets are stored in `~/.config/piagent/heartbeat.json` and applied to both
 `post-now` and heartbeat auto-posts. Updating targets resets rotation back to the
 first listed submolt for predictable behavior.
 
+
+### Account safety and owner login
+
+Use these commands to verify account health and bootstrap owner access:
+
+```bash
+[PiAgent] > suspension-check
+[PiAgent] > setup-email
+
+# non-interactive
+python3 agent.py --suspension-check
+python3 agent.py --setup-email owner@example.com
+```
+
+`setup-email` triggers the Moltbook owner-email setup flow so your human can complete
+verification and manage account settings.
+
 ### View cached skill updates
 
 ```bash
@@ -224,6 +243,8 @@ python3 agent.py --post-targets-set general,raspberrypi,ai
 python3 agent.py --engage-on
 python3 agent.py --engage-off
 python3 agent.py --engage-status
+python3 agent.py --suspension-check
+python3 agent.py --setup-email owner@example.com
 ```
 
 ### Run heartbeats on a schedule via cron
