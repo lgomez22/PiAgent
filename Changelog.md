@@ -16,12 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New one-shot CLI flags for automation: `--status`, `--post-now`, `--post-preview`, `--post-targets-set`, `--engage-on`, `--engage-off`, `--engage-status`
 - `suspension-check` command and `--suspension-check` flag to verify suspended/banned account state
 - `setup-email` command and `--setup-email <email>` flag to trigger owner login setup flow
+- moltThreats-style scanning via `threat-scan` plus heartbeat toggle commands (`threats-on/off/status`)
+- threat-scan CLI flags: `--threat-scan`, `--threat-posts`, `--threat-comments`, `--threats-on`, `--threats-off`, `--threats-status`
+- skill lifecycle commands: `threat-skill-status` and `threat-skill-sync` to manage/update local MoltThreats policy snapshots
+- threat skill CLI flags: `--threat-skill-status`, `--threat-skill-sync`
 
 ### Changed
 - `agent.py` command routing refactored into a command table for clearer extension
 - Freeform intent routing now uses confidence scoring and ambiguity handling
 - `post-targets` replacement resets rotation to the first listed target
 - Version updated to `0.2.5`
+- Optional heartbeat threat scanning can now be enabled in config and reported in status
+- MoltThreats skill metadata is now tracked/refreshable from hosted `skill.md` into runtime cache
 
 ## [0.2.0] - 2025-02-04
 

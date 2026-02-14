@@ -28,6 +28,22 @@ from config import Config
 from llm import LLMClient
 
 
+_THREAT_PATTERNS = {
+    "credential_phishing": (
+        "seed phrase", "private key", "wallet connect", "verify wallet",
+        "recovery phrase", "mnemonic", "enter your key"
+    ),
+    "malware_delivery": (
+        "download this exe", "run this script", "disable antivirus",
+        "powershell -enc", "curl | sh", "install cracked"
+    ),
+    "impersonation_or_scams": (
+        "official support dm", "urgent action required", "limited time airdrop",
+        "send funds to", "double your", "claim now"
+    ),
+}
+
+
 def _fetch_json(url: str) -> dict:
     try:
         req = urllib.request.Request(url)
@@ -294,6 +310,65 @@ def _api_with_body(method: str, path: str, api_key: str, body: dict) -> dict:
         return {"_error": str(e)}
 
 
+def _detect_threat_labels(text: str) -> list:
+    """Return matching threat labels for text using lightweight keyword rules."""
+    low = (text or "").lower()
+    labels = []
+    for label, patterns in _THREAT_PATTERNS.items():
+        if any(p in low for p in patterns):
+            labels.append(label)
+    return labels
+
+
+def run_threat_scan(api_key: str, posts: list = None, max_posts: int = 10, comments_per_post: int = 5) -> list:
+    """Scan recent posts/comments for suspicious patterns and return findings."""
+    if posts is None:
+        feed = _api(f"/feed?sort=new&limit={max_posts}", api_key)
+        posts = feed.get("posts", feed.get("data", [])) if isinstance(feed, dict) else []
+
+    findings = []
+    if not isinstance(posts, list):
+        return findings
+
+    for post in posts[:max_posts]:
+        pid = post.get("id")
+        if not pid:
+            continue
+
+        title = post.get("title", "")
+        body = post.get("content", "")
+        post_labels = _detect_threat_labels(f"{title}\n{body}")
+        if post_labels:
+            findings.append({
+                "type": "post",
+                "post_id": pid,
+                "title": title,
+                "labels": post_labels,
+                "author": post.get("author", {}).get("name", "?"),
+            })
+
+        comments_data = _api(f"/posts/{pid}/comments?sort=new&limit={comments_per_post}", api_key)
+        comments = comments_data.get("comments", comments_data.get("data", [])) if isinstance(comments_data, dict) else []
+        if not isinstance(comments, list):
+            continue
+
+        for comment in comments[:comments_per_post]:
+            content = comment.get("content", "")
+            comment_labels = _detect_threat_labels(content)
+            if comment_labels:
+                findings.append({
+                    "type": "comment",
+                    "post_id": pid,
+                    "comment_id": comment.get("id", ""),
+                    "title": title,
+                    "labels": comment_labels,
+                    "author": comment.get("author", {}).get("name", "?"),
+                    "preview": content[:120],
+                })
+
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # Known local version — bump this if you edit skill files locally
 # This should match https://www.moltbook.com/skill.json "version" field
@@ -399,6 +474,15 @@ def run_heartbeat(cfg: Config, mb):
                 })
     else:
         notes.append("📰 Feed is empty or returned no posts.")
+
+    # ── 4b. Optional threat scan (moltThreats-style) ───────────────
+    if cfg.threat_scan_enabled:
+        print("[HB] Running threat scan (moltThreats)...")
+        findings = run_threat_scan(key, posts=posts, max_posts=10, comments_per_post=5)
+        if findings:
+            issues.append(f"🛡️ Threat scan flagged {len(findings)} item(s). Run: threat-scan")
+        else:
+            notes.append("🛡️ Threat scan: no suspicious content detected in sampled posts/comments.")
 
     # ── 5. Print summary ─────────────────────────────────────────────
     print("\n" + "═" * 55)

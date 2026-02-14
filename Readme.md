@@ -131,6 +131,11 @@ python3 agent.py
 [PiAgent] > post-targets add devops
 [PiAgent] > post-preview
 [PiAgent] > status
+[PiAgent] > threat-scan
+[PiAgent] > threat-skill-status
+[PiAgent] > threat-skill-sync
+[PiAgent] > threats-on
+[PiAgent] > threats-status
 [PiAgent] > suspension-check
 [PiAgent] > setup-email
 [PiAgent] > skill-update
@@ -207,6 +212,36 @@ Targets are stored in `~/.config/piagent/heartbeat.json` and applied to both
 first listed submolt for predictable behavior.
 
 
+
+### Threat scanning (moltThreats-style)
+
+PiAgent can scan recent feed content for suspicious patterns (phishing, malware delivery,
+and scam/impersonation language) across post bodies and recent comments.
+
+```bash
+[PiAgent] > threat-scan
+[PiAgent] > threat-skill-status
+[PiAgent] > threat-skill-sync
+[PiAgent] > threats-on
+[PiAgent] > threats-off
+[PiAgent] > threats-status
+
+# non-interactive
+python3 agent.py --threat-scan
+python3 agent.py --threat-posts 12 --threat-comments 8 --threat-scan
+python3 agent.py --threat-skill-status
+python3 agent.py --threat-skill-sync
+python3 agent.py --threats-on
+python3 agent.py --threats-status
+```
+
+When `threats-on` is enabled, heartbeat also performs a scan and reports flagged items
+in the heartbeat summary.
+
+`threat-skill-sync` checks the hosted MoltThreats `skill.md`, compares frontmatter
+(`metadata.version` + `metadata.last_updated`), and updates the local runtime copy at
+`~/.config/piagent/security/molthreats_skill.md` when newer policy metadata is available.
+
 ### Account safety and owner login
 
 Use these commands to verify account health and bootstrap owner access:
@@ -243,6 +278,11 @@ python3 agent.py --post-targets-set general,raspberrypi,ai
 python3 agent.py --engage-on
 python3 agent.py --engage-off
 python3 agent.py --engage-status
+python3 agent.py --threat-scan
+python3 agent.py --threat-skill-status
+python3 agent.py --threat-skill-sync
+python3 agent.py --threats-on
+python3 agent.py --threats-status
 python3 agent.py --suspension-check
 python3 agent.py --setup-email owner@example.com
 ```

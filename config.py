@@ -111,6 +111,16 @@ class Config:
         self._hb["last_post"] = time.time()
         self._save(self._hb_path, self._hb)
 
+    @property
+    def threat_scan_enabled(self) -> bool:
+        """Whether heartbeat should run moltThreats-style content scanning."""
+        return self._hb.get("threat_scan_enabled", False)
+
+    @threat_scan_enabled.setter
+    def threat_scan_enabled(self, value: bool):
+        self._hb["threat_scan_enabled"] = bool(value)
+        self._save(self._hb_path, self._hb)
+
     # ── multi-submolt targeting ─────────────────────────────────────
     @property
     def post_submolts(self) -> list:
