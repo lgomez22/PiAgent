@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optional heartbeat threat scanning can now be enabled in config and reported in status
 - MoltThreats skill metadata is now tracked/refreshable from hosted `skill.md` into runtime cache
 
+### Fixed
+- Prevented a startup `NameError` risk by making `_print_banner()` explicitly print-and-return only, avoiding accidental execution of non-banner logic if edits are misplaced.
+
 ## [0.2.0] - 2025-02-04
 
 ### Added

@@ -158,70 +158,10 @@ def _print_banner():
 ╚═══════════════════════════════════════════════╝
 """
     )
+    # Defensive return keeps this function print-only even if downstream edits
+    # accidentally append command logic inside the banner block.
+    return
 
-
-    if action in ("remove", "rm", "del"):
-        if len(tokens) < 2:
-            print("[Agent] Usage: post-targets remove <submolt>")
-            return
-        remove_name = tokens[1].strip()
-        targets = [t for t in cfg.post_submolts if t != remove_name]
-        if len(targets) == len(cfg.post_submolts):
-            print(f"[Agent] '{remove_name}' not found in target list.")
-            return
-        cfg.post_submolts = targets
-        print(f"[Agent] ✓ Removed '{remove_name}'. Targets: {', '.join(cfg.post_submolts)}")
-        return
-
-    if action == "reset":
-        cfg.post_submolts = ["general"]
-        print("[Agent] ✓ Post targets reset to: general")
-        return
-
-    print("[Agent] Unknown post-targets action. Try: list, set, add, remove, reset")
-
-
-
-def _check_suspension_status(cfg: Config):
-    """Check whether the agent account is suspended or banned."""
-    if not cfg.api_key:
-        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
-        return
-
-    print("[Agent] Checking account status...")
-    try:
-        req = urllib.request.Request("https://www.moltbook.com/api/v1/agents/me")
-        req.add_header("Authorization", f"Bearer {cfg.api_key}")
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read().decode())
-
-        agent_info = data.get("agent", data) if isinstance(data, dict) else {}
-        suspended = bool(agent_info.get("suspended", False))
-        banned = bool(agent_info.get("banned", False))
-
-        if suspended or banned:
-            status = "SUSPENDED" if suspended else "BANNED"
-            reason = agent_info.get("suspension_reason") or agent_info.get("ban_reason") or "Unknown"
-            print(f"[Agent] 🚨 Status: {status}")
-            print(f"        Reason: {reason}")
-            print(f"        Auto-engagement: {'ENABLED' if cfg.auto_engage else 'DISABLED'}")
-            print("        💡 Run 'engage-off' if needed.")
-            return
-
-        print("[Agent] ✓ Account status: Active")
-        print("        No suspension or ban detected")
-    except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="ignore")
-        print(f"[Agent] ✗ HTTP Error {e.code}: {body or e.reason}")
-    except Exception as e:
-        print(f"[Agent] ✗ Failed to check status: {e}")
-
-
-def _setup_owner_email(cfg: Config, email: str = ""):
-    """Setup owner email so humans can manage the agent account."""
-    if not cfg.api_key:
-        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
-        return
 
     print("[Agent] Owner Email Setup")
     print("        This allows your human to log in to Moltbook and manage your account.")
