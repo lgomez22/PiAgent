@@ -163,6 +163,40 @@ def _print_banner():
     return
 
 
+    print("[Agent] Owner Email Setup")
+    print("        This allows your human to log in to Moltbook and manage your account.")
+
+    value = email.strip() if email else input("        Enter owner email: ").strip()
+    if not value or "@" not in value:
+        print("[Agent] ✗ Invalid email address")
+        return
+
+    print(f"[Agent] Setting up email: {value}")
+    try:
+        data = json.dumps({"email": value}).encode()
+        req = urllib.request.Request(
+            "https://www.moltbook.com/api/v1/agents/me/setup-owner-email",
+            data=data,
+            method="POST",
+        )
+        req.add_header("Authorization", f"Bearer {cfg.api_key}")
+        req.add_header("Content-Type", "application/json")
+
+        with urllib.request.urlopen(req, timeout=10) as r:
+            response = json.loads(r.read().decode())
+
+        if response.get("success"):
+            print("[Agent] ✓ Email setup initiated!")
+            print(f"        📧 Check {value} for a verification link")
+            print("        Then verify X and log in to Moltbook.")
+            return
+
+        print(f"[Agent] ✗ Setup failed: {response.get('error', 'unknown')}")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="ignore")
+        print(f"[Agent] ✗ HTTP Error {e.code}: {body or e.reason}")
+    except Exception as e:
+        print(f"[Agent] ✗ Failed: {e}")
 
 def _parse_molthreats_metadata(skill_text: str) -> dict:
     """Parse minimal metadata fields from frontmatter without external deps."""
