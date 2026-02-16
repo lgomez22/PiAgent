@@ -17,7 +17,7 @@ Usage:
     python3 agent.py --heartbeat # run one heartbeat tick and exit
 """
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 
 import argparse
 import atexit
@@ -279,7 +279,7 @@ def _sync_threat_skill() -> dict:
     remote_error = ""
     try:
         req = urllib.request.Request(_REMOTE_MOLTTHREATS_SKILL)
-        req.add_header("User-Agent", "PiAgent/0.2.5")
+        req.add_header("User-Agent", "PiAgent/0.2.6")
         with urllib.request.urlopen(req, timeout=10) as r:
             remote_text = r.read().decode()
     except Exception as e:

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Versioning policy documented: patch bump for minor fixes (`0.2.5` → `0.2.6`), minor bump for larger feature rollups (`0.2.x` → `0.3.0`)
 - Structured `post-targets` subcommands: `list`, `set`, `add`, `remove`, and `reset`
 - `post-preview` and `post-now --dry-run` for post generation previews without publishing
 - New `status` command for a single snapshot of API/LLM/heartbeat/post-target state
@@ -26,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `agent.py` command routing refactored into a command table for clearer extension
 - Freeform intent routing now uses confidence scoring and ambiguity handling
 - `post-targets` replacement resets rotation to the first listed target
-- Version updated to `0.2.5`
+- Version updated to `0.2.6`
 - Optional heartbeat threat scanning can now be enabled in config and reported in status
 - MoltThreats skill metadata is now tracked/refreshable from hosted `skill.md` into runtime cache
 - `suspension-check` now records API response bodies/hints and surfaces verification-challenge clues with API log path

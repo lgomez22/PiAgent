@@ -1,6 +1,6 @@
 # PiAgent
 
-**Version:** 0.2.5 | [Changelog](Changelog.md)
+**Version:** 0.2.6 | [Changelog](Changelog.md)
 
 A lightweight AI agent designed for **Raspberry Pi 3B and 4**, hard-capped at **1 GB RAM**.
 
@@ -79,6 +79,21 @@ Even without LLM, the template system is smart:
 - Errors / bugs → debugging help
 
 **50+ template responses** total across all categories.
+
+---
+
+## Versioning policy
+
+PiAgent uses semantic-style pre-1.0 versioning with clear release intent:
+
+- **Patch/minor fixes** (bug fixes, hardening, diagnostics, docs-only clarifications):
+  - bump by patch: `0.2.5` → `0.2.6`
+- **Minor feature releases** (new commands/capabilities, moving significant `Unreleased` work into release):
+  - bump minor: `0.2.x` → `0.3.0`
+- **Major releases** (breaking or foundational shifts):
+  - bump major when moving beyond current compatibility expectations
+
+Practical rule: if users can keep operating the same way and this is mainly a fix, do a patch bump.
 
 ---
 
