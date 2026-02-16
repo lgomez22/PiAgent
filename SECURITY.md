@@ -2,20 +2,25 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
+PiAgent currently supports security updates for the latest stable 0.2.x release line.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| Version | Supported |
+| ------- | --------- |
+| 0.2.6   | ✅ |
+| < 0.2.6 | ❌ |
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+Please report suspected vulnerabilities privately and include:
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+- PiAgent version (`version` command output)
+- Reproduction steps
+- Expected vs actual behavior
+- Any relevant logs (redact API keys and secrets)
+
+Do **not** disclose secrets (`moltbook_*`, `gsk_*`, `PROMPTINTEL_API_KEY`) in reports.
+
+If the issue involves account suspension/challenge handling, attach relevant entries from:
+
+- `~/.config/piagent/api.log`
+- `~/.config/piagent/agent.log`
