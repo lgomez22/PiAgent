@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - threat-scan CLI flags: `--threat-scan`, `--threat-posts`, `--threat-comments`, `--threats-on`, `--threats-off`, `--threats-status`
 - skill lifecycle commands: `threat-skill-status` and `threat-skill-sync` to manage/update local MoltThreats policy snapshots
 - threat skill CLI flags: `--threat-skill-status`, `--threat-skill-sync`
+- Moltbook API diagnostics logging to `~/.config/piagent/api.log` with `api-log` / `--api-log` for challenge troubleshooting
 
 ### Changed
 - `agent.py` command routing refactored into a command table for clearer extension
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Version updated to `0.2.5`
 - Optional heartbeat threat scanning can now be enabled in config and reported in status
 - MoltThreats skill metadata is now tracked/refreshable from hosted `skill.md` into runtime cache
+- `suspension-check` now records API response bodies/hints and surfaces verification-challenge clues with API log path
 
 ### Fixed
 - Prevented a startup `NameError` risk by making `_print_banner()` explicitly print-and-return only, avoiding accidental execution of non-banner logic if edits are misplaced.

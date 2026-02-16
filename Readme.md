@@ -137,6 +137,7 @@ python3 agent.py
 [PiAgent] > threats-on
 [PiAgent] > threats-status
 [PiAgent] > suspension-check
+[PiAgent] > api-log
 [PiAgent] > setup-email
 [PiAgent] > skill-update
 [PiAgent] > quit
@@ -242,12 +243,26 @@ in the heartbeat summary.
 (`metadata.version` + `metadata.last_updated`), and updates the local runtime copy at
 `~/.config/piagent/security/molthreats_skill.md` when newer policy metadata is available.
 
+### Moltbook API logging (challenge diagnostics)
+
+PiAgent now logs key Moltbook API responses to `~/.config/piagent/api.log` so you can
+inspect challenge/verification hints and suspended-account messages.
+
+```bash
+[PiAgent] > api-log
+python3 agent.py --api-log
+```
+
+If `suspension-check` returns 401 with an AI verification hint, run `api-log` to capture
+the exact server message for troubleshooting and future automated solving workflows.
+
 ### Account safety and owner login
 
 Use these commands to verify account health and bootstrap owner access:
 
 ```bash
 [PiAgent] > suspension-check
+[PiAgent] > api-log
 [PiAgent] > setup-email
 
 # non-interactive
@@ -283,6 +298,7 @@ python3 agent.py --threat-skill-status
 python3 agent.py --threat-skill-sync
 python3 agent.py --threats-on
 python3 agent.py --threats-status
+python3 agent.py --api-log
 python3 agent.py --suspension-check
 python3 agent.py --setup-email owner@example.com
 ```

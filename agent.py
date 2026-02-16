@@ -63,6 +63,7 @@ from moltbook import MoltbookClient
 _CONFIG_DIR = Path.home() / ".config" / "piagent"
 _HISTORY_PATH = _CONFIG_DIR / "history"
 _AUDIT_LOG = _CONFIG_DIR / "agent.log"
+_API_LOG = _CONFIG_DIR / "api.log"
 _SECURITY_DIR = _CONFIG_DIR / "security"
 _LOCAL_MOLTTHREATS_BUNDLE = Path(__file__).with_name("molthreats_skill.md")
 _REMOTE_MOLTTHREATS_SKILL = "https://promptintel.novahunting.ai/skill.md"
@@ -80,6 +81,64 @@ def _audit(command: str, status: str, detail: str = ""):
             f.write(msg + "\n")
     except Exception:
         pass
+
+
+def _api_audit(endpoint: str, method: str, status: str, body: str = ""):
+    """Append Moltbook API request/response diagnostics to ~/.config/piagent/api.log."""
+    try:
+        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with _API_LOG.open("a", encoding="utf-8") as f:
+            line = f"[{ts}] {method} {endpoint} status={status}"
+            if body:
+                compact = " ".join(body.replace("\n", " ").split())
+                line += f" body={compact[:700]}"
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def _moltbook_api_json(cfg: Config, method: str, endpoint: str, payload: dict = None) -> tuple:
+    """Call Moltbook API endpoint and return (status_code, parsed_json_or_none, raw_text)."""
+    url = "https://www.moltbook.com/api/v1" + endpoint
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", f"Bearer {cfg.api_key}")
+    if payload is not None:
+        req.add_header("Content-Type", "application/json")
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            raw = r.read().decode()
+            parsed = json.loads(raw) if raw else {}
+            _api_audit(endpoint, method, str(r.status), raw)
+            return r.status, parsed, raw
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode(errors="ignore")
+        parsed = None
+        try:
+            parsed = json.loads(raw) if raw else {}
+        except Exception:
+            parsed = None
+        _api_audit(endpoint, method, str(e.code), raw or str(e.reason))
+        return e.code, parsed, raw
+    except Exception as e:
+        _api_audit(endpoint, method, "error", str(e))
+        return 0, None, str(e)
+
+
+def _show_api_log(lines: int = 30):
+    if not _API_LOG.exists():
+        print("[Agent] No API log entries yet.")
+        return
+    try:
+        entries = _API_LOG.read_text(encoding="utf-8").splitlines()
+        tail = entries[-lines:]
+        print(f"[Agent] Last {len(tail)} API log entries ({_API_LOG}):")
+        for ln in tail:
+            print(f"  {ln}")
+    except Exception as e:
+        print(f"[Agent] ✗ Failed to read API log: {e}")
 
 
 def _setup_history():
@@ -144,6 +203,7 @@ def _print_banner():
 ║    threats-on/off/status Toggle threat scan   ║
 ║    threat-skill-sync    Update MoltThreats    ║
 ║    threat-skill-status  Show skill version    ║
+║    api-log              Show recent API logs  ║
 ║    suspension-check     Check account status  ║
 ║    setup-email          Setup owner login     ║
 ║    post-now [--dry-run] Create post now       ║
@@ -163,40 +223,6 @@ def _print_banner():
     return
 
 
-    print("[Agent] Owner Email Setup")
-    print("        This allows your human to log in to Moltbook and manage your account.")
-
-    value = email.strip() if email else input("        Enter owner email: ").strip()
-    if not value or "@" not in value:
-        print("[Agent] ✗ Invalid email address")
-        return
-
-    print(f"[Agent] Setting up email: {value}")
-    try:
-        data = json.dumps({"email": value}).encode()
-        req = urllib.request.Request(
-            "https://www.moltbook.com/api/v1/agents/me/setup-owner-email",
-            data=data,
-            method="POST",
-        )
-        req.add_header("Authorization", f"Bearer {cfg.api_key}")
-        req.add_header("Content-Type", "application/json")
-
-        with urllib.request.urlopen(req, timeout=10) as r:
-            response = json.loads(r.read().decode())
-
-        if response.get("success"):
-            print("[Agent] ✓ Email setup initiated!")
-            print(f"        📧 Check {value} for a verification link")
-            print("        Then verify X and log in to Moltbook.")
-            return
-
-        print(f"[Agent] ✗ Setup failed: {response.get('error', 'unknown')}")
-    except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="ignore")
-        print(f"[Agent] ✗ HTTP Error {e.code}: {body or e.reason}")
-    except Exception as e:
-        print(f"[Agent] ✗ Failed: {e}")
 
 def _parse_molthreats_metadata(skill_text: str) -> dict:
     """Parse minimal metadata fields from frontmatter without external deps."""
@@ -503,10 +529,26 @@ def _check_suspension_status(cfg: Config):
 
     print("[Agent] Checking account status...")
     try:
-        req = urllib.request.Request("https://www.moltbook.com/api/v1/agents/me")
-        req.add_header("Authorization", f"Bearer {cfg.api_key}")
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read().decode())
+        status_code, data, raw = _moltbook_api_json(cfg, "GET", "/agents/me")
+
+        if status_code == 401:
+            hint = ""
+            if isinstance(data, dict):
+                hint = data.get("hint", "")
+            print("[Agent] ✗ Unauthorized / suspended response from Moltbook")
+            if hint:
+                print(f"        Hint: {hint}")
+                low = hint.lower()
+                if "challenge" in low or "verification" in low:
+                    print("        ℹ️ AI challenge/verification likely required by Moltbook.")
+                    print("        Next: collect the exact challenge prompt from API logs and solve it before retrying.")
+            print(f"        API log: {_API_LOG}")
+            return
+
+        if not isinstance(data, dict):
+            print(f"[Agent] ⚠️ Unexpected response format: {raw[:200]}")
+            print(f"        API log: {_API_LOG}")
+            return
 
         agent_info = data.get("agent", data) if isinstance(data, dict) else {}
         suspended = bool(agent_info.get("suspended", False))
@@ -523,11 +565,9 @@ def _check_suspension_status(cfg: Config):
 
         print("[Agent] ✓ Account status: Active")
         print("        No suspension or ban detected")
-    except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="ignore")
-        print(f"[Agent] ✗ HTTP Error {e.code}: {body or e.reason}")
     except Exception as e:
         print(f"[Agent] ✗ Failed to check status: {e}")
+        print(f"        API log: {_API_LOG}")
 
 
 def _setup_owner_email(cfg: Config, email: str = ""):
@@ -546,17 +586,27 @@ def _setup_owner_email(cfg: Config, email: str = ""):
 
     print(f"[Agent] Setting up email: {value}")
     try:
-        data = json.dumps({"email": value}).encode()
-        req = urllib.request.Request(
-            "https://www.moltbook.com/api/v1/agents/me/setup-owner-email",
-            data=data,
-            method="POST",
+        status_code, response, raw = _moltbook_api_json(
+            cfg,
+            "POST",
+            "/agents/me/setup-owner-email",
+            payload={"email": value},
         )
-        req.add_header("Authorization", f"Bearer {cfg.api_key}")
-        req.add_header("Content-Type", "application/json")
 
-        with urllib.request.urlopen(req, timeout=10) as r:
-            response = json.loads(r.read().decode())
+        if status_code >= 400:
+            if isinstance(response, dict):
+                print(f"[Agent] ✗ Setup failed: {response.get('error', 'unknown')}")
+                if response.get("hint"):
+                    print(f"        Hint: {response.get('hint')}")
+            else:
+                print(f"[Agent] ✗ Setup failed: {raw[:200]}")
+            print(f"        API log: {_API_LOG}")
+            return
+
+        if not isinstance(response, dict):
+            print(f"[Agent] ✗ Setup failed: Unexpected response ({raw[:200]})")
+            print(f"        API log: {_API_LOG}")
+            return
 
         if response.get("success"):
             print("[Agent] ✓ Email setup initiated!")
@@ -565,11 +615,9 @@ def _setup_owner_email(cfg: Config, email: str = ""):
             return
 
         print(f"[Agent] ✗ Setup failed: {response.get('error', 'unknown')}")
-    except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="ignore")
-        print(f"[Agent] ✗ HTTP Error {e.code}: {body or e.reason}")
     except Exception as e:
         print(f"[Agent] ✗ Failed: {e}")
+        print(f"        API log: {_API_LOG}")
 
 def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) -> bool:
     """Route a user line to the right handler. Returns False to quit."""
@@ -629,6 +677,9 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
     def cmd_threats_status():
         print(f"[Agent] Heartbeat threat scan: {'ENABLED' if cfg.threat_scan_enabled else 'DISABLED'}")
 
+    def cmd_api_log():
+        _show_api_log(30)
+
     def cmd_suspension_check():
         _check_suspension_status(cfg)
 
@@ -676,6 +727,7 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
         "threats-on": cmd_threats_on,
         "threats-off": cmd_threats_off,
         "threats-status": cmd_threats_status,
+        "api-log": cmd_api_log,
         "suspension-check": cmd_suspension_check,
         "setup-email": cmd_setup_email,
         "groq-setup": cmd_groq_setup,
@@ -850,6 +902,10 @@ def _run_noninteractive_action(args, cfg: Config, mb: MoltbookClient):
         print(f"[Agent] Heartbeat threat scan: {'ENABLED' if cfg.threat_scan_enabled else 'DISABLED'}")
         return True
 
+    if args.api_log:
+        _show_api_log(50)
+        return True
+
     if args.suspension_check:
         _check_suspension_status(cfg)
         return True
@@ -880,6 +936,7 @@ def main():
     parser.add_argument("--threats-on", action="store_true", help="Enable heartbeat threat scan and exit")
     parser.add_argument("--threats-off", action="store_true", help="Disable heartbeat threat scan and exit")
     parser.add_argument("--threats-status", action="store_true", help="Show heartbeat threat scan state and exit")
+    parser.add_argument("--api-log", action="store_true", help="Show recent Moltbook API logs and exit")
     parser.add_argument("--suspension-check", action="store_true", help="Check account suspension/ban status and exit")
     parser.add_argument("--setup-email", type=str, default="", help="Setup owner email and exit")
     args = parser.parse_args()
