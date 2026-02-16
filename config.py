@@ -111,6 +111,74 @@ class Config:
         self._hb["last_post"] = time.time()
         self._save(self._hb_path, self._hb)
 
+    # ── dm safety policy ─────────────────────────────────────────────
+    @property
+    def dm_policy(self) -> str:
+        """DM policy: open | pairing | allowlist."""
+        val = str(self._hb.get("dm_policy", "open")).lower()
+        return val if val in ("open", "pairing", "allowlist") else "open"
+
+    @dm_policy.setter
+    def dm_policy(self, value: str):
+        val = str(value).lower().strip()
+        self._hb["dm_policy"] = val if val in ("open", "pairing", "allowlist") else "open"
+        self._save(self._hb_path, self._hb)
+
+    @property
+    def dm_allowlist(self) -> list:
+        """Approved DM identities for pairing/allowlist mode."""
+        vals = self._hb.get("dm_allowlist", [])
+        if isinstance(vals, list):
+            cleaned = [str(v).strip() for v in vals if str(v).strip()]
+            return sorted(set(cleaned))
+        return []
+
+    @dm_allowlist.setter
+    def dm_allowlist(self, values: list):
+        cleaned = sorted(set(str(v).strip() for v in values if str(v).strip()))
+        self._hb["dm_allowlist"] = cleaned
+        self._save(self._hb_path, self._hb)
+
+    # ── guardrails and failover ──────────────────────────────────────
+    @property
+    def guardrail_mode(self) -> str:
+        """Action guardrail mode: allow | require_approval | block."""
+        val = str(self._hb.get("guardrail_mode", "allow")).lower()
+        return val if val in ("allow", "require_approval", "block") else "allow"
+
+    @guardrail_mode.setter
+    def guardrail_mode(self, value: str):
+        val = str(value).lower().strip()
+        self._hb["guardrail_mode"] = val if val in ("allow", "require_approval", "block") else "allow"
+        self._save(self._hb_path, self._hb)
+
+    @property
+    def model_failover_order(self) -> list:
+        """Ordered failover providers (currently supports groq/template)."""
+        vals = self._hb.get("model_failover_order", ["groq", "template"])
+        if not isinstance(vals, list):
+            return ["groq", "template"]
+        cleaned = [str(v).strip().lower() for v in vals if str(v).strip()]
+        allowed = [v for v in cleaned if v in ("groq", "template")]
+        if not allowed:
+            return ["groq", "template"]
+        # preserve order and uniqueness
+        out = []
+        for item in allowed:
+            if item not in out:
+                out.append(item)
+        return out
+
+    @model_failover_order.setter
+    def model_failover_order(self, values: list):
+        cleaned = []
+        for value in values:
+            val = str(value).strip().lower()
+            if val in ("groq", "template") and val not in cleaned:
+                cleaned.append(val)
+        self._hb["model_failover_order"] = cleaned if cleaned else ["groq", "template"]
+        self._save(self._hb_path, self._hb)
+
     @property
     def threat_scan_enabled(self) -> bool:
         """Whether heartbeat should run moltThreats-style content scanning."""

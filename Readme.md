@@ -1,6 +1,6 @@
 # PiAgent
 
-**Version:** 0.2.6 | [Changelog](Changelog.md)
+**Version:** 0.3.0-rc1 | [Changelog](Changelog.md)
 
 A lightweight AI agent designed for **Raspberry Pi 3B and 4**, hard-capped at **1 GB RAM**.
 
@@ -87,9 +87,9 @@ Even without LLM, the template system is smart:
 PiAgent uses semantic-style pre-1.0 versioning with clear release intent:
 
 - **Patch/minor fixes** (bug fixes, hardening, diagnostics, docs-only clarifications):
-  - bump by patch: `0.2.5` → `0.2.6`
+  - bump by patch: `0.3.0-rc1` → `0.3.1` (or next patch)
 - **Minor feature releases** (new commands/capabilities, moving significant `Unreleased` work into release):
-  - bump minor: `0.2.x` → `0.3.0`
+  - bump minor: `0.2.x` → `0.3.0` (as used for this release-candidate feature rollup)
 - **Major releases** (breaking or foundational shifts):
   - bump major when moving beyond current compatibility expectations
 
@@ -140,6 +140,11 @@ python3 agent.py
 [PiAgent] > post-targets list
 [PiAgent] > post-targets set general,raspberrypi,ai
 [PiAgent] > engage-status
+[PiAgent] > doctor
+[PiAgent] > dm-policy set pairing
+[PiAgent] > dm-policy check
+[PiAgent] > guardrail set require_approval
+[PiAgent] > model-failover status
 [PiAgent] > engage-off
 [PiAgent] > heartbeat
 [PiAgent] > post-targets set general,raspberrypi,ai
@@ -154,6 +159,7 @@ python3 agent.py
 [PiAgent] > suspension-check
 [PiAgent] > api-log
 [PiAgent] > setup-email
+[PiAgent] > webhook-listen
 [PiAgent] > skill-update
 [PiAgent] > quit
 ```
@@ -209,6 +215,26 @@ By default, the heartbeat will **automatically interact** with posts:
 ```
 
 The setting persists across sessions (saved to `~/.config/piagent/heartbeat.json`).
+
+### 0.3.0-rc1 roadmap integrations
+
+This release candidate integrates the OpenClaw-inspired roadmap items:
+
+- **DM pairing policy**: `dm-policy set open|pairing|allowlist`, `dm-policy pair`, `dm-policy check`
+- **Doctor diagnostics**: `doctor` and `--doctor`
+- **Model failover policy**: `model-failover status|set groq,template`
+- **Guardrail policy engine**: `guardrail set allow|require_approval|block`
+- **Webhook trigger endpoint**: `webhook-listen` or `--webhook-listen` (default `127.0.0.1:18999/trigger`)
+
+Webhook example:
+
+```bash
+curl -X POST http://127.0.0.1:18999/trigger \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"status"}'
+```
+
+Use `PIAGENT_WEBHOOK_TOKEN` (or `--webhook-token`) to require `X-PiAgent-Token`.
 
 ### Multi-submolt targeting (auto-post rotation)
 
@@ -302,6 +328,11 @@ PiAgent now supports one-shot command flags for automation and scripts:
 
 ```bash
 python3 agent.py --status
+python3 agent.py --doctor
+python3 agent.py --dm-policy-set pairing
+python3 agent.py --guardrail-set require_approval
+python3 agent.py --model-failover-set groq,template
+python3 agent.py --webhook-listen --webhook-token your_token
 python3 agent.py --post-preview
 python3 agent.py --post-now
 python3 agent.py --post-targets-set general,raspberrypi,ai

@@ -17,17 +17,19 @@ Usage:
     python3 agent.py --heartbeat # run one heartbeat tick and exit
 """
 
-__version__ = "0.2.6"
+__version__ = "0.3.0-rc1"
 
 import argparse
 import atexit
 import json
 import os
+import threading
 import sys
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import readline
 
@@ -199,6 +201,11 @@ def _print_banner():
 ║    status               System health summary ║
 ║    engage-on/off        Toggle auto-engage    ║
 ║    engage-status        Check engage status   ║
+║    doctor               Run health checks     ║
+║    dm-policy ...        Pairing/allowlist DM  ║
+║    guardrail ...        Action guardrails     ║
+║    model-failover ...   LLM fallback order    ║
+║    webhook-listen       Local webhook mode    ║
 ║    threat-scan          Scan feed for threats ║
 ║    threats-on/off/status Toggle threat scan   ║
 ║    threat-skill-sync    Update MoltThreats    ║
@@ -279,7 +286,7 @@ def _sync_threat_skill() -> dict:
     remote_error = ""
     try:
         req = urllib.request.Request(_REMOTE_MOLTTHREATS_SKILL)
-        req.add_header("User-Agent", "PiAgent/0.2.6")
+        req.add_header("User-Agent", f"PiAgent/{__version__}")
         with urllib.request.urlopen(req, timeout=10) as r:
             remote_text = r.read().decode()
     except Exception as e:
@@ -393,15 +400,257 @@ def _show_status(cfg: Config):
     print(f"  Post targets: {', '.join(cfg.post_submolts)}")
     print(f"  Current target: {cfg.current_post_submolt()}")
     print(f"  Threat scan on heartbeat: {'enabled' if cfg.threat_scan_enabled else 'disabled'}")
+    print(f"  DM policy: {cfg.dm_policy} (allowlist size: {len(cfg.dm_allowlist)})")
+    print(f"  Guardrail mode: {cfg.guardrail_mode}")
+    print(f"  Model failover: {', '.join(cfg.model_failover_order)}")
     runtime_skill = _SECURITY_DIR / "molthreats_skill.md"
     skill_text = _safe_read(runtime_skill) or _safe_read(_LOCAL_MOLTTHREATS_BUNDLE)
     skill_meta = _parse_molthreats_metadata(skill_text)
     print(f"  MoltThreats skill: v{skill_meta.get('version', 'unknown')} ({skill_meta.get('last_updated', 'unknown')})")
 
 
-def _run_post_now(cfg: Config, dry_run: bool = False):
+
+def _doctor(cfg: Config):
+    """Run quick local diagnostics for common deployment issues."""
+    print("[Agent] Running doctor checks...")
+    checks = []
+    checks.append(("Moltbook API key configured", bool(cfg.api_key)))
+    checks.append(("Groq API key configured", bool(cfg.groq_api_key)))
+    checks.append(("Config dir exists", _CONFIG_DIR.exists()))
+    checks.append(("Agent log path writable", _CONFIG_DIR.exists()))
+    checks.append(("MoltThreats runtime skill present", (_SECURITY_DIR / "molthreats_skill.md").exists() or _LOCAL_MOLTTHREATS_BUNDLE.exists()))
+    checks.append(("Heartbeat timestamp recorded", cfg.last_heartbeat is not None))
+    checks.append(("DM policy valid", cfg.dm_policy in ("open", "pairing", "allowlist")))
+    checks.append(("Guardrail mode valid", cfg.guardrail_mode in ("allow", "require_approval", "block")))
+
+    for name, ok in checks:
+        print(f"  {'✅' if ok else '⚠️'} {name}")
+
+
+def _guardrail_allows(cfg: Config, action_name: str, interactive: bool = True) -> bool:
+    """Enforce action policy before sensitive actions."""
+    mode = cfg.guardrail_mode
+    if mode == "allow":
+        return True
+    if mode == "block":
+        print(f"[Agent] ⛔ Blocked by guardrail policy: {action_name}")
+        return False
+    if not interactive:
+        print(f"[Agent] ⛔ Non-interactive action requires approval: {action_name}")
+        return False
+
+    ans = input(f"[Agent] Approve sensitive action '{action_name}'? (y/n): ").strip().lower()
+    return ans == "y"
+
+
+def _check_dm_pairing(cfg: Config):
+    """Inspect DM conversations and report unpaired senders for pairing/allowlist modes."""
+    if cfg.dm_policy == "open":
+        print("[Agent] DM policy is OPEN. No pairing checks required.")
+        return
+    if not cfg.api_key:
+        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
+        return
+
+    print(f"[Agent] Checking DM conversations under policy: {cfg.dm_policy}")
+    status_code, data, raw = _moltbook_api_json(cfg, "GET", "/agents/dm/conversations")
+    if status_code >= 400:
+        print(f"[Agent] ✗ Failed to fetch conversations: {raw[:200]}")
+        return
+
+    conversations = []
+    if isinstance(data, dict):
+        conversations = data.get("conversations", data.get("data", []))
+    if not isinstance(conversations, list):
+        print("[Agent] ⚠️ Unexpected DM conversation response format")
+        return
+
+    unknown = []
+    for conv in conversations:
+        counterpart = conv.get("with") or conv.get("participant") or conv.get("other_party") or {}
+        if isinstance(counterpart, dict):
+            name = counterpart.get("name") or counterpart.get("username") or counterpart.get("id")
+        else:
+            name = counterpart
+        name = str(name).strip() if name else ""
+        if not name:
+            continue
+        if name not in cfg.dm_allowlist:
+            unknown.append(name)
+
+    if not unknown:
+        print("[Agent] ✓ No unpaired DM senders detected.")
+        return
+
+    uniq = sorted(set(unknown))
+    print(f"[Agent] ⚠️ Unpaired DM senders: {', '.join(uniq)}")
+    print("        Approve with: dm-policy pair <sender_name>")
+
+
+def _handle_dm_policy(cfg: Config, raw_args: str):
+    tokens = raw_args.split()
+    action = tokens[0].lower() if tokens else "status"
+
+    if action in ("status", "show"):
+        print(f"[Agent] DM policy: {cfg.dm_policy}")
+        if cfg.dm_allowlist:
+            print(f"[Agent] Pairings: {', '.join(cfg.dm_allowlist)}")
+        else:
+            print("[Agent] Pairings: (none)")
+        return
+
+    if action == "set":
+        mode = tokens[1].lower() if len(tokens) > 1 else ""
+        if mode not in ("open", "pairing", "allowlist"):
+            print("[Agent] Usage: dm-policy set open|pairing|allowlist")
+            return
+        cfg.dm_policy = mode
+        print(f"[Agent] ✓ DM policy set to: {cfg.dm_policy}")
+        return
+
+    if action in ("pair", "approve", "add"):
+        name = " ".join(tokens[1:]).strip()
+        if not name:
+            print("[Agent] Usage: dm-policy pair <sender_name>")
+            return
+        allow = cfg.dm_allowlist
+        if name not in allow:
+            allow.append(name)
+            cfg.dm_allowlist = allow
+        print(f"[Agent] ✓ Paired sender: {name}")
+        return
+
+    if action in ("unpair", "remove"):
+        name = " ".join(tokens[1:]).strip()
+        if not name:
+            print("[Agent] Usage: dm-policy unpair <sender_name>")
+            return
+        allow = [x for x in cfg.dm_allowlist if x != name]
+        cfg.dm_allowlist = allow
+        print(f"[Agent] ✓ Removed pairing: {name}")
+        return
+
+    if action == "check":
+        _check_dm_pairing(cfg)
+        return
+
+    print("[Agent] Usage: dm-policy status|set open|pairing|allowlist|pair <name>|unpair <name>|check")
+
+
+def _handle_guardrail(cfg: Config, raw_args: str):
+    tokens = raw_args.split()
+    action = tokens[0].lower() if tokens else "status"
+    if action in ("status", "show"):
+        print(f"[Agent] Guardrail mode: {cfg.guardrail_mode}")
+        return
+    if action == "set":
+        mode = tokens[1].lower() if len(tokens) > 1 else ""
+        if mode not in ("allow", "require_approval", "block"):
+            print("[Agent] Usage: guardrail set allow|require_approval|block")
+            return
+        cfg.guardrail_mode = mode
+        print(f"[Agent] ✓ Guardrail mode set to: {cfg.guardrail_mode}")
+        return
+    print("[Agent] Usage: guardrail status|set allow|require_approval|block")
+
+
+def _handle_model_failover(cfg: Config, raw_args: str):
+    tokens = raw_args.split()
+    action = tokens[0].lower() if tokens else "status"
+    if action in ("status", "show"):
+        print(f"[Agent] Model failover order: {', '.join(cfg.model_failover_order)}")
+        return
+    if action == "set":
+        payload = " ".join(tokens[1:]).strip()
+        vals = [v.strip().lower() for v in payload.replace(';', ',').split(',') if v.strip()]
+        if not vals:
+            print("[Agent] Usage: model-failover set groq,template")
+            return
+        cfg.model_failover_order = vals
+        print(f"[Agent] ✓ Model failover order set: {', '.join(cfg.model_failover_order)}")
+        return
+    print("[Agent] Usage: model-failover status|set groq,template")
+
+
+def _generate_post_with_failover(cfg: Config) -> tuple:
     llm = LLMClient(cfg)
-    title, content = llm.generate_post(use_llm=True)
+    for provider in cfg.model_failover_order:
+        if provider == "groq" and llm.is_available():
+            return llm.generate_post(use_llm=True)
+        if provider == "template":
+            return llm.generate_post(use_llm=False)
+    return llm.generate_post(use_llm=False)
+
+
+def _run_webhook_listener(cfg: Config, host: str = "127.0.0.1", port: int = 18999, token: str = ""):
+    """Local webhook endpoint for external triggers."""
+    _token = token.strip()
+    print(f"[Agent] Webhook listener starting on http://{host}:{port}/trigger")
+    if _token:
+        print("[Agent] Token auth enabled (X-PiAgent-Token required)")
+
+    class Handler(BaseHTTPRequestHandler):
+        def _reply(self, code: int, payload: dict):
+            body = json.dumps(payload).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            if self.path != "/trigger":
+                self._reply(404, {"ok": False, "error": "not found"})
+                return
+            if _token and self.headers.get("X-PiAgent-Token", "") != _token:
+                self._reply(401, {"ok": False, "error": "invalid token"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length).decode() if length > 0 else "{}"
+                payload = json.loads(raw)
+            except Exception:
+                self._reply(400, {"ok": False, "error": "invalid json"})
+                return
+
+            action = str(payload.get("action", "status")).strip().lower()
+            if action == "status":
+                self._reply(200, {"ok": True, "version": __version__, "auto_engage": cfg.auto_engage})
+                return
+            if action == "heartbeat":
+                threading.Thread(target=run_heartbeat, args=(cfg, None), daemon=True).start()
+                self._reply(202, {"ok": True, "message": "heartbeat scheduled"})
+                return
+            if action == "threat_scan":
+                posts = int(payload.get("posts", 10))
+                comments = int(payload.get("comments", 5))
+                threading.Thread(target=_run_threat_scan, args=(cfg, posts, comments), daemon=True).start()
+                self._reply(202, {"ok": True, "message": "threat scan scheduled"})
+                return
+            if action == "post_now":
+                if not _guardrail_allows(cfg, "webhook.post_now", interactive=False):
+                    self._reply(403, {"ok": False, "error": "blocked by guardrail"})
+                    return
+                threading.Thread(target=_run_post_now, args=(cfg, False), daemon=True).start()
+                self._reply(202, {"ok": True, "message": "post scheduled"})
+                return
+            self._reply(400, {"ok": False, "error": f"unsupported action: {action}"})
+
+        def log_message(self, *_args):
+            return
+
+    server = ThreadingHTTPServer((host, port), Handler)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        print("[Agent] Webhook listener stopped")
+
+
+def _run_post_now(cfg: Config, dry_run: bool = False):
+    title, content = _generate_post_with_failover(cfg)
     submolt = cfg.current_post_submolt()
 
     print(f"[Agent]   Target: m/{submolt}")
@@ -657,6 +906,22 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
     def cmd_status():
         _show_status(cfg)
 
+    def cmd_doctor():
+        _doctor(cfg)
+
+    def cmd_dm_policy():
+        _handle_dm_policy(cfg, " ".join(parts[1:]) if len(parts) > 1 else "status")
+
+    def cmd_guardrail():
+        _handle_guardrail(cfg, " ".join(parts[1:]) if len(parts) > 1 else "status")
+
+    def cmd_model_failover():
+        _handle_model_failover(cfg, " ".join(parts[1:]) if len(parts) > 1 else "status")
+
+    def cmd_webhook_listen():
+        token = os.environ.get("PIAGENT_WEBHOOK_TOKEN", "")
+        _run_webhook_listener(cfg, host="127.0.0.1", port=18999, token=token)
+
     def cmd_threat_scan():
         _run_threat_scan(cfg)
 
@@ -684,6 +949,8 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
         _check_suspension_status(cfg)
 
     def cmd_setup_email():
+        if not _guardrail_allows(cfg, "setup-email", interactive=True):
+            return
         _setup_owner_email(cfg)
 
     def cmd_groq_setup():
@@ -708,6 +975,8 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
             print("        Currently using template-based responses")
 
     def cmd_heartbeat():
+        if cfg.dm_policy != "open":
+            _check_dm_pairing(cfg)
         run_heartbeat(cfg, mb)
 
     command_table = {
@@ -721,6 +990,11 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
         "engage-off": cmd_engage_off,
         "engage-status": cmd_engage_status,
         "status": cmd_status,
+        "doctor": cmd_doctor,
+        "dm-policy": cmd_dm_policy,
+        "guardrail": cmd_guardrail,
+        "model-failover": cmd_model_failover,
+        "webhook-listen": cmd_webhook_listen,
         "threat-scan": cmd_threat_scan,
         "threat-skill-sync": cmd_threat_skill_sync,
         "threat-skill-status": cmd_threat_skill_status,
@@ -743,6 +1017,9 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
 
         if cmd == "post-now":
             dry_run = sub.lower() in ("--dry-run", "--preview") if sub else False
+            if not dry_run and not _guardrail_allows(cfg, "post-now", interactive=True):
+                _audit(line, "blocked", "guardrail")
+                return True
             print("[Agent] Creating a post now...")
             _run_post_now(cfg, dry_run=dry_run)
             _audit(line, "ok", "dry-run" if dry_run else "posted")
@@ -843,10 +1120,14 @@ def _run_noninteractive_action(args, cfg: Config, mb: MoltbookClient):
         return True
 
     if args.heartbeat:
+        if cfg.dm_policy != "open":
+            _check_dm_pairing(cfg)
         run_heartbeat(cfg, mb)
         return True
 
     if args.post_now:
+        if not _guardrail_allows(cfg, "post-now", interactive=False):
+            return True
         _run_post_now(cfg, dry_run=False)
         return True
 
@@ -874,6 +1155,27 @@ def _run_noninteractive_action(args, cfg: Config, mb: MoltbookClient):
 
     if args.status:
         _show_status(cfg)
+        return True
+
+    if args.doctor:
+        _doctor(cfg)
+        return True
+
+    if args.dm_policy_set:
+        _handle_dm_policy(cfg, f"set {args.dm_policy_set}")
+        return True
+
+    if args.guardrail_set:
+        _handle_guardrail(cfg, f"set {args.guardrail_set}")
+        return True
+
+    if args.model_failover_set:
+        _handle_model_failover(cfg, f"set {args.model_failover_set}")
+        return True
+
+    if args.webhook_listen:
+        token = args.webhook_token or os.environ.get("PIAGENT_WEBHOOK_TOKEN", "")
+        _run_webhook_listener(cfg, host=args.webhook_host, port=args.webhook_port, token=token)
         return True
 
     if args.threat_scan:
@@ -911,6 +1213,8 @@ def _run_noninteractive_action(args, cfg: Config, mb: MoltbookClient):
         return True
 
     if args.setup_email:
+        if not _guardrail_allows(cfg, "setup-email", interactive=False):
+            return True
         _setup_owner_email(cfg, args.setup_email)
         return True
 
@@ -928,6 +1232,14 @@ def main():
     parser.add_argument("--engage-status", action="store_true", help="Show engagement status and exit")
     parser.add_argument("--post-targets-set", type=str, default="", help="Replace auto-post targets, comma-separated")
     parser.add_argument("--status", action="store_true", help="Show one-line system snapshot and exit")
+    parser.add_argument("--doctor", action="store_true", help="Run doctor checks and exit")
+    parser.add_argument("--dm-policy-set", type=str, default="", help="Set DM policy: open|pairing|allowlist")
+    parser.add_argument("--guardrail-set", type=str, default="", help="Set guardrail mode: allow|require_approval|block")
+    parser.add_argument("--model-failover-set", type=str, default="", help="Set model failover order, e.g. groq,template")
+    parser.add_argument("--webhook-listen", action="store_true", help="Start local webhook listener")
+    parser.add_argument("--webhook-host", type=str, default="127.0.0.1", help="Webhook bind host")
+    parser.add_argument("--webhook-port", type=int, default=18999, help="Webhook bind port")
+    parser.add_argument("--webhook-token", type=str, default="", help="Webhook token (or use PIAGENT_WEBHOOK_TOKEN)")
     parser.add_argument("--threat-scan", action="store_true", help="Run moltThreats-style scan and exit")
     parser.add_argument("--threat-skill-sync", action="store_true", help="Check/update local MoltThreats skill copy and exit")
     parser.add_argument("--threat-skill-status", action="store_true", help="Show local MoltThreats skill version and exit")

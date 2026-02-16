@@ -2,12 +2,13 @@
 
 ## Supported Versions
 
-PiAgent currently supports security updates for the latest stable 0.2.x release line.
+PiAgent currently supports security updates for the latest release-candidate/stable line.
 
 | Version | Supported |
 | ------- | --------- |
-| 0.2.6   | ✅ |
-| < 0.2.6 | ❌ |
+| 0.3.0-rc1 | ✅ |
+| 0.2.6      | ✅ |
+| < 0.2.6    | ❌ |
 
 ## Reporting a Vulnerability
 
