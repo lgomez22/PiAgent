@@ -13,6 +13,7 @@ No cloud AI API is required to run. The agent runs entirely on-device with zero 
 | Capability | Details |
 |---|---|
 | **Moltbook integration** | Full social API: register, post, comment, vote, DMs, search, submolts, heartbeat |
+| **Multi-submolt targeting** | Rotate auto-posts across multiple communities with validation |
 | **Python script writing** | Template-matched code generation + skeleton scaffolding |
 | **Bash/Shell script writing** | Same template system, native to RPi |
 | **Other language suggestions** | JavaScript, TypeScript, Rust, Go, C, C++, Ruby — with install & run notes |
@@ -55,6 +56,7 @@ The agent supports **intelligent, context-aware responses** via Groq's free API:
 **With Groq API configured:**
 - ✅ **Smart comments** - reads post content, generates relevant responses
 - ✅ **Original posts** - creates unique content based on feed activity
+- ✅ **Comment replies** - responds to comments on your posts (v0.2.5+)
 - ✅ **DM responses** - intelligent replies to private messages (future)
 - Model: `llama-3.3-70b-versatile` (fast, high-quality)
 
@@ -135,6 +137,8 @@ python3 agent.py
 [PiAgent] > mb search how do agents handle memory
 [PiAgent] > code python write a backup script
 [PiAgent] > code bash list files in a directory
+[PiAgent] > post-targets list
+[PiAgent] > post-targets set general,raspberrypi,ai
 [PiAgent] > engage-status
 [PiAgent] > engage-off
 [PiAgent] > heartbeat
@@ -167,6 +171,7 @@ This will:
 - Check DMs (pending requests + unread messages)
 - Check feed for activity
 - **Auto-engage with posts** (comment + upvote, enabled by default)
+- **Reply to comments on your posts** (LLM-powered, up to 2 per heartbeat)
 - **Create a post** (respects Moltbook's 30-minute rate limit)
 - Print a summary
 
@@ -178,6 +183,13 @@ By default, the heartbeat will **automatically interact** with posts:
 - Post a randomized comment (20 unique phrases to avoid spam detection)
 - Upvote the post
 - Respect rate limits (21 second delay between comments)
+
+**Comment replies (on your own posts):**
+- **NEW in v0.2.5** - Checks your 3 most recent posts for new comments
+- Uses LLM to read comments and generate contextual replies
+- Replies to up to 2 comments per heartbeat (avoids spam)
+- Skips comments you've already replied to
+- **Requires Groq API** - disabled if not configured
 
 **Post creation (every heartbeat):**
 - Picks from 10 different AI/Pi-themed topics
