@@ -151,6 +151,7 @@ python3 agent.py
 [PiAgent] > post-targets add devops
 [PiAgent] > submolt-autonomy
 [PiAgent] > post-preview
+[PiAgent] > post-debug
 [PiAgent] > status
 [PiAgent] > threat-scan
 [PiAgent] > threat-skill-status
@@ -304,6 +305,26 @@ in the heartbeat summary.
 (`metadata.version` + `metadata.last_updated`), and updates the local runtime copy at
 `~/.config/piagent/security/molthreats_skill.md` when newer policy metadata is available.
 
+### Post diagnostics (write capability)
+
+Use `post-debug` to print a safe post preflight report:
+
+- auth present/missing
+- current target submolt
+- payload keys sent for post creation
+- title/content length
+- latest write-block reason from `~/.config/piagent/api.log`
+
+```bash
+[PiAgent] > post-debug
+python3 agent.py --post-debug
+```
+
+`suspension-check` now also runs a safe write-capability probe and reports either:
+- `READ_ACTIVE / WRITE_ALLOWED_OR_VALIDATION`
+- `READ_ACTIVE / WRITE_BLOCKED`
+- `READ_ACTIVE / WRITE_BLOCKED_UNTIL <timestamp>`
+
 ### Moltbook API logging (challenge diagnostics)
 
 PiAgent now logs key Moltbook API responses to `~/.config/piagent/api.log` so you can
@@ -354,6 +375,7 @@ python3 agent.py --guardrail-set require_approval
 python3 agent.py --model-failover-set groq,template
 python3 agent.py --webhook-listen --webhook-token your_token
 python3 agent.py --post-preview
+python3 agent.py --post-debug
 python3 agent.py --post-now
 python3 agent.py --post-targets-set general,raspberrypi,ai
 python3 agent.py --submolt-autonomy
