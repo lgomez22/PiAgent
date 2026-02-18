@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `suspension-check` now records API response bodies/hints and surfaces verification-challenge clues with API log path
 
 ### Fixed
+- Replaced box-drawing banner glyphs with ASCII output in `_print_banner()` to avoid merge-related syntax breakage from stray unicode banner lines.
 - Guardrail checks in non-interactive dispatch now reference `cfg.guardrail_mode` directly to prevent merge-related `NameError` regressions from stale local variables.
 - Fixed a non-interactive startup crash where a guardrail `mode` reference could raise `NameError` during CLI action dispatch.
 - DM pairing check now normalizes multiple Moltbook DM response shapes and prints a response preview + API log path when format is unknown.
