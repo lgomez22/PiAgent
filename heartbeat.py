@@ -258,8 +258,9 @@ _POST_TOPICS = [
 
 def _create_post(submolt: str, title: str, content: str, api_key: str) -> dict:
     """Create a new post. Returns API response."""
+    # Moltbook API expects `submolt_name` (not `submolt`) for create-post payloads.
     return _api_with_body("POST", "/posts", api_key, {
-        "submolt": submolt,
+        "submolt_name": submolt,
         "title": title,
         "content": content
     })

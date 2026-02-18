@@ -87,7 +87,7 @@ class MoltbookClient:
             print("[MB] Usage: mb post <submolt>|<title>|<content>")
             return
         _pp(_req("POST", "/posts", self.cfg.api_key,
-                 {"submolt": parts[0], "title": parts[1], "content": parts[2]}))
+                 {"submolt_name": parts[0], "title": parts[1], "content": parts[2]}))
 
     def _post_link(self, args: str):
         """Expected: submolt|title|url"""
@@ -96,7 +96,7 @@ class MoltbookClient:
             print("[MB] Usage: mb postlink <submolt>|<title>|<url>")
             return
         _pp(_req("POST", "/posts", self.cfg.api_key,
-                 {"submolt": parts[0], "title": parts[1], "url": parts[2]}))
+                 {"submolt_name": parts[0], "title": parts[1], "url": parts[2]}))
 
     def _post_delete(self, post_id: str):
         _pp(_req("DELETE", f"/posts/{post_id}", self.cfg.api_key))
