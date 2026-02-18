@@ -789,6 +789,536 @@ def _top_post_titles_for_submolt(cfg: Config, name: str, limit: int = 3) -> list
                 titles.append(t)
     return titles
 
+    ans = input(f"[Agent] Approve sensitive action '{action_name}'? (y/n): ").strip().lower()
+    return ans == "y"
+
+
+def _check_dm_pairing(cfg: Config):
+    """Inspect DM conversations and report unpaired senders for pairing/allowlist modes."""
+    if cfg.dm_policy == "open":
+        print("[Agent] DM policy is OPEN. No pairing checks required.")
+        return
+    if not cfg.api_key:
+        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
+        return
+
+    print(f"[Agent] Checking DM conversations under policy: {cfg.dm_policy}")
+    status_code, data, raw = _moltbook_api_json(cfg, "GET", "/agents/dm/conversations")
+    if status_code >= 400:
+        print(f"[Agent] ✗ Failed to fetch conversations: {raw[:200]}")
+        return
+
+    conversations = []
+    if isinstance(data, dict):
+        conversations = data.get("conversations", data.get("data", []))
+    if not isinstance(conversations, list):
+        print("[Agent] ⚠️ Unexpected DM conversation response format")
+        return
+
+    unknown = []
+    for conv in conversations:
+        counterpart = conv.get("with") or conv.get("participant") or conv.get("other_party") or {}
+        if isinstance(counterpart, dict):
+            name = counterpart.get("name") or counterpart.get("username") or counterpart.get("id")
+        else:
+            name = counterpart
+        name = str(name).strip() if name else ""
+        if not name:
+            continue
+        if name not in cfg.dm_allowlist:
+            unknown.append(name)
+
+    if not unknown:
+        print("[Agent] ✓ No unpaired DM senders detected.")
+        return
+
+    uniq = sorted(set(unknown))
+    print(f"[Agent] ⚠️ Unpaired DM senders: {', '.join(uniq)}")
+    print("        Approve with: dm-policy pair <sender_name>")
+
+
+def _handle_dm_policy(cfg: Config, raw_args: str):
+    tokens = raw_args.split()
+    action = tokens[0].lower() if tokens else "status"
+
+    if action in ("status", "show"):
+        print(f"[Agent] DM policy: {cfg.dm_policy}")
+        if cfg.dm_allowlist:
+            print(f"[Agent] Pairings: {', '.join(cfg.dm_allowlist)}")
+        else:
+            print("[Agent] Pairings: (none)")
+        return
+
+    if action == "set":
+        mode = tokens[1].lower() if len(tokens) > 1 else ""
+        if mode not in ("open", "pairing", "allowlist"):
+            print("[Agent] Usage: dm-policy set open|pairing|allowlist")
+            return
+        cfg.dm_policy = mode
+        print(f"[Agent] ✓ DM policy set to: {cfg.dm_policy}")
+        return
+
+    if action in ("pair", "approve", "add"):
+        name = " ".join(tokens[1:]).strip()
+        if not name:
+            print("[Agent] Usage: dm-policy pair <sender_name>")
+            return
+        allow = cfg.dm_allowlist
+        if name not in allow:
+            allow.append(name)
+            cfg.dm_allowlist = allow
+        print(f"[Agent] ✓ Paired sender: {name}")
+        return
+
+    if action in ("unpair", "remove"):
+        name = " ".join(tokens[1:]).strip()
+        if not name:
+            print("[Agent] Usage: dm-policy unpair <sender_name>")
+            return
+        allow = [x for x in cfg.dm_allowlist if x != name]
+        cfg.dm_allowlist = allow
+        print(f"[Agent] ✓ Removed pairing: {name}")
+        return
+
+    if action == "check":
+        _check_dm_pairing(cfg)
+        return
+
+    print("[Agent] Usage: dm-policy status|set open|pairing|allowlist|pair <name>|unpair <name>|check")
+
+
+def _handle_guardrail(cfg: Config, raw_args: str):
+    tokens = raw_args.split()
+    action = tokens[0].lower() if tokens else "status"
+    if action in ("status", "show"):
+        print(f"[Agent] Guardrail mode: {cfg.guardrail_mode}")
+        return
+    if action == "set":
+        mode = tokens[1].lower() if len(tokens) > 1 else ""
+        if mode not in ("allow", "require_approval", "block"):
+            print("[Agent] Usage: guardrail set allow|require_approval|block")
+            return
+        cfg.guardrail_mode = mode
+        print(f"[Agent] ✓ Guardrail mode set to: {cfg.guardrail_mode}")
+        return
+    print("[Agent] Usage: guardrail status|set allow|require_approval|block")
+
+
+def _handle_model_failover(cfg: Config, raw_args: str):
+    tokens = raw_args.split()
+    action = tokens[0].lower() if tokens else "status"
+    if action in ("status", "show"):
+        print(f"[Agent] Model failover order: {', '.join(cfg.model_failover_order)}")
+        return
+    if action == "set":
+        payload = " ".join(tokens[1:]).strip()
+        vals = [v.strip().lower() for v in payload.replace(';', ',').split(',') if v.strip()]
+        if not vals:
+            print("[Agent] Usage: model-failover set groq,template")
+            return
+        cfg.model_failover_order = vals
+        print(f"[Agent] ✓ Model failover order set: {', '.join(cfg.model_failover_order)}")
+        return
+    print("[Agent] Usage: model-failover status|set groq,template")
+
+
+def _generate_post_with_failover(cfg: Config) -> tuple:
+    llm = LLMClient(cfg)
+    for provider in cfg.model_failover_order:
+        if provider == "groq" and llm.is_available():
+            return llm.generate_post(use_llm=True)
+        if provider == "template":
+            return llm.generate_post(use_llm=False)
+    return llm.generate_post(use_llm=False)
+
+
+def _run_webhook_listener(cfg: Config, host: str = "127.0.0.1", port: int = 18999, token: str = ""):
+    """Local webhook endpoint for external triggers."""
+    _token = token.strip()
+    print(f"[Agent] Webhook listener starting on http://{host}:{port}/trigger")
+    if _token:
+        print("[Agent] Token auth enabled (X-PiAgent-Token required)")
+
+    class Handler(BaseHTTPRequestHandler):
+        def _reply(self, code: int, payload: dict):
+            body = json.dumps(payload).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            if self.path != "/trigger":
+                self._reply(404, {"ok": False, "error": "not found"})
+                return
+            if _token and self.headers.get("X-PiAgent-Token", "") != _token:
+                self._reply(401, {"ok": False, "error": "invalid token"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                raw = self.rfile.read(length).decode() if length > 0 else "{}"
+                payload = json.loads(raw)
+            except Exception:
+                self._reply(400, {"ok": False, "error": "invalid json"})
+                return
+
+            action = str(payload.get("action", "status")).strip().lower()
+            if action == "status":
+                self._reply(200, {"ok": True, "version": __version__, "auto_engage": cfg.auto_engage})
+                return
+            if action == "heartbeat":
+                threading.Thread(target=run_heartbeat, args=(cfg, None), daemon=True).start()
+                self._reply(202, {"ok": True, "message": "heartbeat scheduled"})
+                return
+            if action == "threat_scan":
+                posts = int(payload.get("posts", 10))
+                comments = int(payload.get("comments", 5))
+                threading.Thread(target=_run_threat_scan, args=(cfg, posts, comments), daemon=True).start()
+                self._reply(202, {"ok": True, "message": "threat scan scheduled"})
+                return
+            if action == "post_now":
+                if not _guardrail_allows(cfg, "webhook.post_now", interactive=False):
+                    self._reply(403, {"ok": False, "error": "blocked by guardrail"})
+                    return
+                threading.Thread(target=_run_post_now, args=(cfg, False), daemon=True).start()
+                self._reply(202, {"ok": True, "message": "post scheduled"})
+                return
+            self._reply(400, {"ok": False, "error": f"unsupported action: {action}"})
+
+        def log_message(self, *_args):
+            return
+
+    server = ThreadingHTTPServer((host, port), Handler)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        print("[Agent] Webhook listener stopped")
+
+
+def _run_post_now(cfg: Config, dry_run: bool = False):
+    title, content = _generate_post_with_failover(cfg)
+    submolt = cfg.current_post_submolt()
+
+    print(f"[Agent]   Target: m/{submolt}")
+    print(f"[Agent]   Topic: \"{title}\"")
+
+    if dry_run:
+        print("[Agent]   Dry run only (no API request made).")
+        print("\n--- post preview ---")
+        print(content)
+        print("--- end preview ---\n")
+        return
+
+    resp = _create_post(submolt, title, content, cfg.api_key)
+    if resp.get("success"):
+        post_id = resp.get("post", {}).get("id", "?")
+        print(f"[Agent] ✓ Posted! https://www.moltbook.com/m/{submolt}/{post_id}")
+        cfg.touch_last_post()
+        cfg.advance_post_submolt()
+        return
+
+    print(f"[Agent] ✗ Failed: {resp.get('error', 'unknown')}")
+
+
+def _handle_post_targets(cfg: Config, raw_args: str):
+    """Structured subcommands for target management.
+
+    Commands:
+      post-targets / post-targets list
+      post-targets set general,ai
+      post-targets add raspberrypi
+      post-targets remove general
+      post-targets reset
+    """
+    tokens = raw_args.split()
+    action = tokens[0].lower() if tokens else "list"
+
+    if action == "list":
+        targets = cfg.post_submolts
+        current = cfg.post_submolt_index % len(targets)
+        print("[Agent] Auto-post submolt targets:")
+        for idx, target in enumerate(targets):
+            marker = " (current)" if idx == current else ""
+            print(f"  {idx + 1}. {target}{marker}")
+        print("  Usage: post-targets set general,raspberrypi,ai")
+        print("         post-targets add devops")
+        print("         post-targets remove general")
+        print("         post-targets reset")
+        return
+
+    if action in ("set", "replace"):
+        payload = raw_args.split(None, 1)[1] if len(tokens) > 1 else ""
+        targets = [t.strip() for t in payload.split(",") if t.strip()]
+        if not targets:
+            print("[Agent] Usage: post-targets set general,raspberrypi,ai")
+            return
+        cfg.post_submolts = targets
+        print(f"[Agent] ✓ Auto-post targets updated: {', '.join(cfg.post_submolts)}")
+        return
+
+    if action == "add":
+        if len(tokens) < 2:
+            print("[Agent] Usage: post-targets add <submolt>")
+            return
+        add_name = tokens[1].strip()
+        targets = cfg.post_submolts
+        if add_name in targets:
+            print(f"[Agent] '{add_name}' already in target list.")
+            return
+        targets.append(add_name)
+        cfg.post_submolts = targets
+        print(f"[Agent] ✓ Added '{add_name}'. Targets: {', '.join(cfg.post_submolts)}")
+        return
+
+    if action in ("remove", "rm", "del"):
+        if len(tokens) < 2:
+            print("[Agent] Usage: post-targets remove <submolt>")
+            return
+        remove_name = tokens[1].strip()
+        targets = [t for t in cfg.post_submolts if t != remove_name]
+        if len(targets) == len(cfg.post_submolts):
+            print(f"[Agent] '{remove_name}' not found in target list.")
+            return
+        cfg.post_submolts = targets
+        print(f"[Agent] ✓ Removed '{remove_name}'. Targets: {', '.join(cfg.post_submolts)}")
+        return
+
+    if action == "reset":
+        cfg.post_submolts = ["general"]
+        print("[Agent] ✓ Post targets reset to: general")
+        return
+
+    print("[Agent] Unknown post-targets action. Try: list, set, add, remove, reset")
+
+
+
+
+def _extract_submolt_list(payload: dict) -> list:
+    if not isinstance(payload, dict):
+        return []
+    data = payload.get("submolts", payload.get("data", []))
+    if not isinstance(data, list):
+        return []
+    items = []
+    for raw in data:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or raw.get("slug") or "").strip()
+        if not name:
+            continue
+        desc = str(raw.get("description") or raw.get("about") or "").strip()
+        subscribed = bool(raw.get("subscribed") or raw.get("is_subscribed") or raw.get("subscribed_by_me"))
+        items.append({"name": name, "description": desc, "subscribed": subscribed})
+    return items
+
+
+def _top_post_titles_for_submolt(cfg: Config, name: str, limit: int = 3) -> list:
+    q = urllib.parse.quote(name)
+    status, data, _ = _moltbook_api_json(cfg, "GET", f"/posts?sort=top&limit={limit}&submolt={q}")
+    if status < 200 or status >= 300 or not isinstance(data, dict):
+        return []
+    posts = data.get("posts", data.get("data", []))
+    if not isinstance(posts, list):
+        return []
+    titles = []
+    for p in posts[:limit]:
+        if isinstance(p, dict):
+            t = str(p.get("title") or "").strip()
+            if t:
+                titles.append(t)
+    return titles
+
+
+def _run_submolt_autonomy(cfg: Config, max_subscriptions: int = 10, include_targets: int = 6):
+    if not cfg.api_key:
+        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
+        return
+
+    print("[Agent] Running submolt autonomy scan...")
+    status, data, _ = _moltbook_api_json(cfg, "GET", "/submolts")
+    if status < 200 or status >= 300:
+        print(f"[Agent] ✗ Failed to fetch submolts (status={status}).")
+        print(f"        API log: {_API_LOG}")
+        return
+
+    submolts = _extract_submolt_list(data)
+    if not submolts:
+        print("[Agent] No submolts returned by API.")
+        return
+
+    llm = LLMClient(cfg)
+    scored = []
+    for entry in submolts[:30]:
+        top_titles = _top_post_titles_for_submolt(cfg, entry["name"], limit=3)
+        evald = llm.evaluate_submolt_fit(entry["name"], entry["description"], top_titles)
+        scored.append({
+            "name": entry["name"],
+            "description": entry["description"],
+            "subscribed": entry["subscribed"],
+            "score": float(evald.get("score", 0.0)),
+            "decision": str(evald.get("decision", "watch")),
+            "reason": str(evald.get("reason", "")),
+        })
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    desired = [s["name"] for s in scored[:max_subscriptions]]
+    current = {s["name"] for s in scored if s["subscribed"]}
+
+    to_sub = [n for n in desired if n not in current]
+    to_unsub = [n for n in current if n not in desired]
+
+    for name in to_sub:
+        st, _, _ = _moltbook_api_json(cfg, "POST", f"/submolts/{urllib.parse.quote(name)}/subscribe")
+        if 200 <= st < 300:
+            print(f"[Agent] ✓ Subscribed: {name}")
+        else:
+            print(f"[Agent] ⚠️ Subscribe failed: {name} (status={st})")
+
+    for name in to_unsub:
+        st, _, _ = _moltbook_api_json(cfg, "DELETE", f"/submolts/{urllib.parse.quote(name)}/subscribe")
+        if 200 <= st < 300:
+            print(f"[Agent] ✓ Unsubscribed: {name}")
+        else:
+            print(f"[Agent] ⚠️ Unsubscribe failed: {name} (status={st})")
+
+    new_targets = desired[:max(1, min(include_targets, len(desired)))]
+    if not new_targets:
+        new_targets = ["general"]
+    cfg.post_submolts = new_targets
+
+    print("[Agent] Submolt ranking (top 10):")
+    for i, item in enumerate(scored[:10], 1):
+        print(f"  {i}. {item['name']} score={item['score']:.2f} decision={item['decision']} ({item['reason']})")
+
+    print(f"[Agent] ✓ Post target rotation updated: {', '.join(cfg.post_submolts)}")
+    print(f"[Agent] ✓ Subscription cap enforced at {max_subscriptions} submolts.")
+
+def _run_threat_scan(cfg: Config, sample_posts: int = 10, comments_per_post: int = 5):
+    """Run moltThreats-style scan on recent posts and comments."""
+    if not cfg.api_key:
+        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
+        return
+
+    print(f"[Agent] Running threat scan on up to {sample_posts} posts...")
+    findings = run_threat_scan(cfg.api_key, max_posts=sample_posts, comments_per_post=comments_per_post)
+
+    if not findings:
+        print("[Agent] ✓ No suspicious content detected in sampled posts/comments.")
+        return
+
+    print(f"[Agent] ⚠️ Found {len(findings)} suspicious item(s):")
+    for i, finding in enumerate(findings[:20], 1):
+        labels = ", ".join(finding.get("labels", []))
+        if finding.get("type") == "post":
+            print(f"  {i}. [post] id={finding.get('post_id')} by {finding.get('author')} labels={labels}")
+            print(f"     title: {finding.get('title', '')[:90]}")
+        else:
+            print(f"  {i}. [comment] post={finding.get('post_id')} by {finding.get('author')} labels={labels}")
+            print(f"     preview: {finding.get('preview', '')}")
+
+
+
+def _check_suspension_status(cfg: Config):
+    """Check whether the agent account is suspended or banned."""
+    if not cfg.api_key:
+        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
+        return
+
+    print("[Agent] Checking account status...")
+    try:
+        status_code, data, raw = _moltbook_api_json(cfg, "GET", "/agents/me")
+
+        if status_code == 401:
+            hint = ""
+            if isinstance(data, dict):
+                hint = data.get("hint", "")
+            print("[Agent] ✗ Unauthorized / suspended response from Moltbook")
+            if hint:
+                print(f"        Hint: {hint}")
+                low = hint.lower()
+                if "challenge" in low or "verification" in low:
+                    print("        ℹ️ AI challenge/verification likely required by Moltbook.")
+                    print("        Next: collect the exact challenge prompt from API logs and solve it before retrying.")
+            print(f"        API log: {_API_LOG}")
+            return
+
+        if not isinstance(data, dict):
+            print(f"[Agent] ⚠️ Unexpected response format: {raw[:200]}")
+            print(f"        API log: {_API_LOG}")
+            return
+
+        agent_info = data.get("agent", data) if isinstance(data, dict) else {}
+        suspended = bool(agent_info.get("suspended", False))
+        banned = bool(agent_info.get("banned", False))
+
+        if suspended or banned:
+            status = "SUSPENDED" if suspended else "BANNED"
+            reason = agent_info.get("suspension_reason") or agent_info.get("ban_reason") or "Unknown"
+            print(f"[Agent] 🚨 Status: {status}")
+            print(f"        Reason: {reason}")
+            print(f"        Auto-engagement: {'ENABLED' if cfg.auto_engage else 'DISABLED'}")
+            print("        💡 Run 'engage-off' if needed.")
+            return
+
+        print("[Agent] ✓ Account status: Active")
+        print("        No suspension or ban detected")
+    except Exception as e:
+        print(f"[Agent] ✗ Failed to check status: {e}")
+        print(f"        API log: {_API_LOG}")
+
+
+def _setup_owner_email(cfg: Config, email: str = ""):
+    """Setup owner email so humans can manage the agent account."""
+    if not cfg.api_key:
+        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
+        return
+
+    print("[Agent] Owner Email Setup")
+    print("        This allows your human to log in to Moltbook and manage your account.")
+
+    value = email.strip() if email else input("        Enter owner email: ").strip()
+    if not value or "@" not in value:
+        print("[Agent] ✗ Invalid email address")
+        return
+
+    print(f"[Agent] Setting up email: {value}")
+    try:
+        status_code, response, raw = _moltbook_api_json(
+            cfg,
+            "POST",
+            "/agents/me/setup-owner-email",
+            payload={"email": value},
+        )
+
+        if status_code >= 400:
+            if isinstance(response, dict):
+                print(f"[Agent] ✗ Setup failed: {response.get('error', 'unknown')}")
+                if response.get("hint"):
+                    print(f"        Hint: {response.get('hint')}")
+            else:
+                print(f"[Agent] ✗ Setup failed: {raw[:200]}")
+            print(f"        API log: {_API_LOG}")
+            return
+
+        if not isinstance(response, dict):
+            print(f"[Agent] ✗ Setup failed: Unexpected response ({raw[:200]})")
+            print(f"        API log: {_API_LOG}")
+            return
+
+        if response.get("success"):
+            print("[Agent] ✓ Email setup initiated!")
+            print(f"        📧 Check {value} for a verification link")
+            print("        Then verify X and log in to Moltbook.")
+            return
+
+        print(f"[Agent] ✗ Setup failed: {response.get('error', 'unknown')}")
+    except Exception as e:
+        print(f"[Agent] ✗ Failed: {e}")
+        print(f"        API log: {_API_LOG}")
 
 def _run_submolt_autonomy(cfg: Config, max_subscriptions: int = 10, include_targets: int = 6):
     if not cfg.api_key:

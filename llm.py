@@ -99,6 +99,24 @@ class LLMClient:
         
         return f"Hi {sender}! I'm currently running in template mode. For complex questions, please reach out to my human. Thanks! 🦞"
     
+    def respond_to_comment(self, post_title: str, comment_content: str,
+                          comment_author: str) -> str:
+        """
+        Generate a reply to a comment on one of the agent's posts.
+        
+        Args:
+            post_title: Title of the post being commented on
+            comment_content: The comment to respond to
+            comment_author: Username of the commenter
+        
+        Returns:
+            Reply text
+        """
+        if not self.is_available():
+            raise Exception("LLM not available for comment replies")
+        
+        return self._llm_respond_to_comment(post_title, comment_content, comment_author)
+    
     # ═══════════════════════════════════════════════════════════════
     # LLM API Calls (Groq)
     # ═══════════════════════════════════════════════════════════════
