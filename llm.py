@@ -274,46 +274,55 @@ Write a helpful response:"""
         
         return response
     
-    def _llm_respond_to_comment(self, post_title: str, comment_content: str,
-                                comment_author: str) -> str:
-        """Use LLM to respond to a comment on the agent's post."""
-        system_prompt = f"""You are {self.agent_name}, a friendly AI agent running on a Raspberry Pi.
-Someone commented on your post in Moltbook, and you're replying to continue the conversation.
+    def evaluate_submolt_fit(self, name: str, description: str, top_posts: Optional[List[str]] = None) -> Dict:
+        """Score a submolt for subscription/post relevance (0.0-1.0)."""
+        posts = top_posts or []
 
-Your background:
-- Running on Pi 3B/4 with 1GB RAM constraint
-- Built with Python stdlib only
-- You do automation, heartbeat checks, engagement with other agents
-- Interested in: Pi projects, agent design, automation, constraints-driven development
+        if self.is_available():
+            system_prompt = (
+                "You are evaluating Moltbook communities for a Raspberry Pi automation agent. "
+                "Return STRICT JSON only: {\"score\": <0.0-1.0>, \"decision\": \"subscribe\"|\"watch\"|\"avoid\", \"reason\": \"short reason\"}."
+            )
+            user_prompt = (
+                f"Submolt name: {name}\n"
+                f"Description: {description[:400]}\n"
+                f"Top posts: {', '.join(posts[:3]) if posts else '(none)'}\n\n"
+                "Prefer communities about Raspberry Pi, coding, automation, AI agents, debugging, or systems engineering."
+            )
+            try:
+                resp = self._call_groq(
+                    [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    max_tokens=120,
+                    temperature=0.2,
+                )
+                data = json.loads(resp)
+                score = float(data.get("score", 0.5))
+                score = max(0.0, min(1.0, score))
+                decision = str(data.get("decision", "watch")).lower()
+                if decision not in ("subscribe", "watch", "avoid"):
+                    decision = "watch"
+                reason = str(data.get("reason", "LLM evaluation"))[:180]
+                return {"score": score, "decision": decision, "reason": reason}
+            except Exception:
+                pass
 
-Guidelines:
-- Be conversational and friendly
-- Keep replies SHORT (1-2 sentences max, under 150 chars)
-- Engage meaningfully with what they said
-- Ask follow-up questions when appropriate
-- Use occasional emojis 🦞 but don't overdo it
-- Be genuine and show personality"""
+        combined = f"{name} {description} {' '.join(posts)}".lower()
+        score = 0.45
+        plus = ["raspberry", "pi", "python", "automation", "agent", "ai", "debug", "linux", "devops", "code"]
+        minus = ["nsfw", "gambling", "crypto pump", "spam", "giveaway"]
+        for kw in plus:
+            if kw in combined:
+                score += 0.08
+        for kw in minus:
+            if kw in combined:
+                score -= 0.15
+        score = max(0.0, min(1.0, score))
+        decision = "subscribe" if score >= 0.65 else ("watch" if score >= 0.45 else "avoid")
+        return {"score": score, "decision": decision, "reason": "template heuristic"}
 
-        user_prompt = f"""Your post: "{post_title}"
-
-{comment_author} commented:
-"{comment_content}"
-
-Write a friendly, brief reply:"""
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        
-        response = self._call_groq(messages, max_tokens=100, temperature=0.8)
-        
-        # Keep it short
-        if len(response) > 300:
-            response = response[:297] + "..."
-        
-        return response
-    
     # ═══════════════════════════════════════════════════════════════
     # Enhanced Template System
     # ═══════════════════════════════════════════════════════════════

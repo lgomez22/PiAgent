@@ -27,6 +27,7 @@ import threading
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -215,6 +216,7 @@ def _print_banner():
 ║    setup-email          Setup owner login     ║
 ║    post-now [--dry-run] Create post now       ║
 ║    post-targets ...     Manage post targets   ║
+║    submolt-autonomy     Auto curate submolts  ║
 ║    groq-setup           Configure Groq API    ║
 ║    groq-status          Check LLM status      ║
 ║    skill-update         View cached skills    ║
@@ -745,6 +747,108 @@ def _handle_post_targets(cfg: Config, raw_args: str):
     print("[Agent] Unknown post-targets action. Try: list, set, add, remove, reset")
 
 
+
+
+def _extract_submolt_list(payload: dict) -> list:
+    if not isinstance(payload, dict):
+        return []
+    data = payload.get("submolts", payload.get("data", []))
+    if not isinstance(data, list):
+        return []
+    items = []
+    for raw in data:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name") or raw.get("slug") or "").strip()
+        if not name:
+            continue
+        desc = str(raw.get("description") or raw.get("about") or "").strip()
+        subscribed = bool(raw.get("subscribed") or raw.get("is_subscribed") or raw.get("subscribed_by_me"))
+        items.append({"name": name, "description": desc, "subscribed": subscribed})
+    return items
+
+
+def _top_post_titles_for_submolt(cfg: Config, name: str, limit: int = 3) -> list:
+    q = urllib.parse.quote(name)
+    status, data, _ = _moltbook_api_json(cfg, "GET", f"/posts?sort=top&limit={limit}&submolt={q}")
+    if status < 200 or status >= 300 or not isinstance(data, dict):
+        return []
+    posts = data.get("posts", data.get("data", []))
+    if not isinstance(posts, list):
+        return []
+    titles = []
+    for p in posts[:limit]:
+        if isinstance(p, dict):
+            t = str(p.get("title") or "").strip()
+            if t:
+                titles.append(t)
+    return titles
+
+
+def _run_submolt_autonomy(cfg: Config, max_subscriptions: int = 10, include_targets: int = 6):
+    if not cfg.api_key:
+        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
+        return
+
+    print("[Agent] Running submolt autonomy scan...")
+    status, data, _ = _moltbook_api_json(cfg, "GET", "/submolts")
+    if status < 200 or status >= 300:
+        print(f"[Agent] ✗ Failed to fetch submolts (status={status}).")
+        print(f"        API log: {_API_LOG}")
+        return
+
+    submolts = _extract_submolt_list(data)
+    if not submolts:
+        print("[Agent] No submolts returned by API.")
+        return
+
+    llm = LLMClient(cfg)
+    scored = []
+    for entry in submolts[:30]:
+        top_titles = _top_post_titles_for_submolt(cfg, entry["name"], limit=3)
+        evald = llm.evaluate_submolt_fit(entry["name"], entry["description"], top_titles)
+        scored.append({
+            "name": entry["name"],
+            "description": entry["description"],
+            "subscribed": entry["subscribed"],
+            "score": float(evald.get("score", 0.0)),
+            "decision": str(evald.get("decision", "watch")),
+            "reason": str(evald.get("reason", "")),
+        })
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    desired = [s["name"] for s in scored[:max_subscriptions]]
+    current = {s["name"] for s in scored if s["subscribed"]}
+
+    to_sub = [n for n in desired if n not in current]
+    to_unsub = [n for n in current if n not in desired]
+
+    for name in to_sub:
+        st, _, _ = _moltbook_api_json(cfg, "POST", f"/submolts/{urllib.parse.quote(name)}/subscribe")
+        if 200 <= st < 300:
+            print(f"[Agent] ✓ Subscribed: {name}")
+        else:
+            print(f"[Agent] ⚠️ Subscribe failed: {name} (status={st})")
+
+    for name in to_unsub:
+        st, _, _ = _moltbook_api_json(cfg, "DELETE", f"/submolts/{urllib.parse.quote(name)}/subscribe")
+        if 200 <= st < 300:
+            print(f"[Agent] ✓ Unsubscribed: {name}")
+        else:
+            print(f"[Agent] ⚠️ Unsubscribe failed: {name} (status={st})")
+
+    new_targets = desired[:max(1, min(include_targets, len(desired)))]
+    if not new_targets:
+        new_targets = ["general"]
+    cfg.post_submolts = new_targets
+
+    print("[Agent] Submolt ranking (top 10):")
+    for i, item in enumerate(scored[:10], 1):
+        print(f"  {i}. {item['name']} score={item['score']:.2f} decision={item['decision']} ({item['reason']})")
+
+    print(f"[Agent] ✓ Post target rotation updated: {', '.join(cfg.post_submolts)}")
+    print(f"[Agent] ✓ Subscription cap enforced at {max_subscriptions} submolts.")
+
 def _run_threat_scan(cfg: Config, sample_posts: int = 10, comments_per_post: int = 5):
     """Run moltThreats-style scan on recent posts and comments."""
     if not cfg.api_key:
@@ -979,6 +1083,9 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
             _check_dm_pairing(cfg)
         run_heartbeat(cfg, mb)
 
+    def cmd_submolt_autonomy():
+        _run_submolt_autonomy(cfg)
+
     command_table = {
         "help": cmd_help,
         "h": cmd_help,
@@ -1007,6 +1114,7 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
         "groq-setup": cmd_groq_setup,
         "groq-status": cmd_groq_status,
         "heartbeat": cmd_heartbeat,
+        "submolt-autonomy": cmd_submolt_autonomy,
     }
 
     try:
@@ -1153,6 +1261,10 @@ def _run_noninteractive_action(args, cfg: Config, mb: MoltbookClient):
         _handle_post_targets(cfg, f"set {args.post_targets_set}")
         return True
 
+    if args.submolt_autonomy:
+        _run_submolt_autonomy(cfg)
+        return True
+
     if args.status:
         _show_status(cfg)
         return True
@@ -1231,6 +1343,7 @@ def main():
     parser.add_argument("--engage-off", action="store_true", help="Disable auto-engagement and exit")
     parser.add_argument("--engage-status", action="store_true", help="Show engagement status and exit")
     parser.add_argument("--post-targets-set", type=str, default="", help="Replace auto-post targets, comma-separated")
+    parser.add_argument("--submolt-autonomy", action="store_true", help="Auto-curate subscriptions and post-targets")
     parser.add_argument("--status", action="store_true", help="Show one-line system snapshot and exit")
     parser.add_argument("--doctor", action="store_true", help="Run doctor checks and exit")
     parser.add_argument("--dm-policy-set", type=str, default="", help="Set DM policy: open|pairing|allowlist")

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Submolt autonomy workflow (`submolt-autonomy` + `--submolt-autonomy`) to score communities, enforce max 10 subscriptions, and rotate top-ranked submolts into post targets
 - Local webhook trigger mode added (`webhook-listen` + `--webhook-listen`)
 - Model failover controls added (`model-failover` + `--model-failover-set`)
 - Guardrail policy controls added (`guardrail` + `--guardrail-set`)
@@ -29,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moltbook API diagnostics logging to `~/.config/piagent/api.log` with `api-log` / `--api-log` for challenge troubleshooting
 
 ### Changed
+- `mb submolts` now prints a clean name list; `mb submolt` without args aliases to the same list output
 - `agent.py` command routing refactored into a command table for clearer extension
 - Freeform intent routing now uses confidence scoring and ambiguity handling
 - `post-targets` replacement resets rotation to the first listed target

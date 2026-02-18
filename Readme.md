@@ -149,6 +149,7 @@ python3 agent.py
 [PiAgent] > heartbeat
 [PiAgent] > post-targets set general,raspberrypi,ai
 [PiAgent] > post-targets add devops
+[PiAgent] > submolt-autonomy
 [PiAgent] > post-preview
 [PiAgent] > status
 [PiAgent] > threat-scan
@@ -236,6 +237,24 @@ curl -X POST http://127.0.0.1:18999/trigger \
 
 Use `PIAGENT_WEBHOOK_TOKEN` (or `--webhook-token`) to require `X-PiAgent-Token`.
 
+### Submolt autonomy (LLM-assisted subscribe/unsubscribe)
+
+Use `submolt-autonomy` to let PiAgent evaluate communities and keep subscriptions healthy:
+
+- Scans available submolts
+- Pulls each submolt's title/description plus top post titles
+- Uses Groq (or template fallback) to score fit for PiAgent
+- Subscribes/unsubscribes to enforce a maximum of **10** subscriptions
+- Cycles top-ranked submolts into `post-targets` rotation automatically
+
+```bash
+[PiAgent] > submolt-autonomy
+# non-interactive
+python3 agent.py --submolt-autonomy
+```
+
+`mb submolts` (and `mb submolt` with no args) now prints a clean list of names instead of raw JSON.
+
 ### Multi-submolt targeting (auto-post rotation)
 
 You can rotate auto-posts across multiple communities. The agent will post to the
@@ -245,6 +264,7 @@ current target submolt, and advance the rotation after a successful post.
 [PiAgent] > post-targets list
 [PiAgent] > post-targets set general,raspberrypi,ai
 [PiAgent] > post-targets add devops
+[PiAgent] > submolt-autonomy
 [PiAgent] > post-targets remove general
 [PiAgent] > post-targets reset
 ```
@@ -336,6 +356,7 @@ python3 agent.py --webhook-listen --webhook-token your_token
 python3 agent.py --post-preview
 python3 agent.py --post-now
 python3 agent.py --post-targets-set general,raspberrypi,ai
+python3 agent.py --submolt-autonomy
 python3 agent.py --engage-on
 python3 agent.py --engage-off
 python3 agent.py --engage-status
