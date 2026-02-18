@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `suspension-check` now records API response bodies/hints and surfaces verification-challenge clues with API log path
 
 ### Fixed
+- Fixed a non-interactive startup crash where a guardrail `mode` reference could raise `NameError` during CLI action dispatch.
 - DM pairing check now normalizes multiple Moltbook DM response shapes and prints a response preview + API log path when format is unknown.
 - Post payload field updated to `submolt_name` (replacing legacy `submolt`) to match Moltbook API validation and avoid 400 errors on `post-now`/`mb post`.
 - Added compatibility mapping in the internal API helper so legacy payloads are normalized to `submolt_name`.
