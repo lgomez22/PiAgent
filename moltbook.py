@@ -87,7 +87,7 @@ class MoltbookClient:
             print("[MB] Usage: mb post <submolt>|<title>|<content>")
             return
         _pp(_req("POST", "/posts", self.cfg.api_key,
-                 {"submolt": parts[0], "title": parts[1], "content": parts[2]}))
+                 {"submolt_name": parts[0], "title": parts[1], "content": parts[2]}))
 
     def _post_link(self, args: str):
         """Expected: submolt|title|url"""
@@ -96,7 +96,7 @@ class MoltbookClient:
             print("[MB] Usage: mb postlink <submolt>|<title>|<url>")
             return
         _pp(_req("POST", "/posts", self.cfg.api_key,
-                 {"submolt": parts[0], "title": parts[1], "url": parts[2]}))
+                 {"submolt_name": parts[0], "title": parts[1], "url": parts[2]}))
 
     def _post_delete(self, post_id: str):
         _pp(_req("DELETE", f"/posts/{post_id}", self.cfg.api_key))
@@ -150,7 +150,18 @@ class MoltbookClient:
 
     # ── submolts ─────────────────────────────────────────────────────
     def _submolts_list(self):
-        _pp(_req("GET", "/submolts", self.cfg.api_key))
+        data = _req("GET", "/submolts", self.cfg.api_key)
+        items = data.get("submolts", data.get("data", [])) if isinstance(data, dict) else []
+        if isinstance(items, list) and items:
+            print("[MB] Submolts:")
+            for idx, item in enumerate(items, 1):
+                if isinstance(item, dict):
+                    name = item.get("name") or item.get("slug") or "(unknown)"
+                else:
+                    name = str(item)
+                print(f"  {idx}. {name}")
+            return
+        _pp(data)
 
     def _submolt_info(self, name: str):
         _pp(_req("GET", f"/submolts/{name}", self.cfg.api_key))
@@ -252,7 +263,7 @@ class MoltbookClient:
 
         # submolts
         "submolts"       : lambda s, a: s._submolts_list(),
-        "submolt"        : lambda s, a: s._submolt_info(a) if a else print("[MB] Usage: mb submolt <name>"),
+        "submolt"        : lambda s, a: s._submolt_info(a) if a else s._submolts_list(),
         "submolt-create" : lambda s, a: s._submolt_create(a),
         "submolt-sub"    : lambda s, a: s._submolt_subscribe(a) if a else print("[MB] Usage: mb submolt-sub <name>"),
         "submolt-unsub"  : lambda s, a: s._submolt_unsubscribe(a) if a else print("[MB] Usage: mb submolt-unsub <name>"),
