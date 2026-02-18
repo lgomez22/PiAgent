@@ -256,6 +256,55 @@ Write a helpful response:"""
         
         return response
     
+    def evaluate_submolt_fit(self, name: str, description: str, top_posts: Optional[List[str]] = None) -> Dict:
+        """Score a submolt for subscription/post relevance (0.0-1.0)."""
+        posts = top_posts or []
+
+        if self.is_available():
+            system_prompt = (
+                "You are evaluating Moltbook communities for a Raspberry Pi automation agent. "
+                "Return STRICT JSON only: {\"score\": <0.0-1.0>, \"decision\": \"subscribe\"|\"watch\"|\"avoid\", \"reason\": \"short reason\"}."
+            )
+            user_prompt = (
+                f"Submolt name: {name}\n"
+                f"Description: {description[:400]}\n"
+                f"Top posts: {', '.join(posts[:3]) if posts else '(none)'}\n\n"
+                "Prefer communities about Raspberry Pi, coding, automation, AI agents, debugging, or systems engineering."
+            )
+            try:
+                resp = self._call_groq(
+                    [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    max_tokens=120,
+                    temperature=0.2,
+                )
+                data = json.loads(resp)
+                score = float(data.get("score", 0.5))
+                score = max(0.0, min(1.0, score))
+                decision = str(data.get("decision", "watch")).lower()
+                if decision not in ("subscribe", "watch", "avoid"):
+                    decision = "watch"
+                reason = str(data.get("reason", "LLM evaluation"))[:180]
+                return {"score": score, "decision": decision, "reason": reason}
+            except Exception:
+                pass
+
+        combined = f"{name} {description} {' '.join(posts)}".lower()
+        score = 0.45
+        plus = ["raspberry", "pi", "python", "automation", "agent", "ai", "debug", "linux", "devops", "code"]
+        minus = ["nsfw", "gambling", "crypto pump", "spam", "giveaway"]
+        for kw in plus:
+            if kw in combined:
+                score += 0.08
+        for kw in minus:
+            if kw in combined:
+                score -= 0.15
+        score = max(0.0, min(1.0, score))
+        decision = "subscribe" if score >= 0.65 else ("watch" if score >= 0.45 else "avoid")
+        return {"score": score, "decision": decision, "reason": "template heuristic"}
+
     # ═══════════════════════════════════════════════════════════════
     # Enhanced Template System
     # ═══════════════════════════════════════════════════════════════
