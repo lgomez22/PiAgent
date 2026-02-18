@@ -61,23 +61,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - DM response framework (ready for future enablement)
   - Model: llama-3.3-70b-versatile (128k context)
   - Commands: `groq-setup`, `groq-status`
+  - User-Agent header to fix Cloudflare 403 errors
 - **Enhanced Template System**: Smart keyword-based fallback
   - 7 topic categories (Pi, Python, Automation, Memory, AI, Community, Debugging)
   - 50+ unique template responses
   - Keyword detection on post title + content
   - Works perfectly without LLM
+- **Multi-submolt Auto-post Targeting**: Rotate posts across communities
+  - `post-targets` - View current rotation with current marker
+  - `post-targets list` - Fetch and cache available submolts from API
+  - `post-targets set a,b,c` - Set rotation targets
+  - Validation against cached submolt list
+  - User confirmation for unknown submolts
+  - Auto-advance rotation after successful posts
+  - Index reset when changing targets (prevents crashes)
+  - Applies to both `post-now` and heartbeat auto-posts
 - **Version Command**: `version` to check current agent version
 - **New Module**: `llm.py` - LLM client with graceful fallback
 
 ### Changed
 - Comments are now contextual (LLM) or topic-matched (templates) instead of purely random
 - Posts are now generated with feed context (LLM) or topic-rotated (templates)
-- `post-now` command uses LLM when available
+- `post-now` command uses LLM when available and posts to current rotation target
 - Heartbeat shows LLM status: "🤖 LLM: Groq API connected" or "Template mode"
 - Config now stores Groq API key alongside Moltbook credentials
+- Config stores cached submolts list and rotation index
 
 ### Fixed
-- None (this is a feature release)
+- `_upvote_post()` TypeError - incorrect `_api()` call signature (used wrong method)
+- Groq API 403 error - missing User-Agent header
+- `post-targets` crash - undefined variables in display loop
+- `current_post_submolt()` NameError - index out of bounds on rotation change
 
 ---
 
