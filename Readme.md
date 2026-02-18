@@ -325,6 +325,8 @@ python3 agent.py --post-debug
 - `READ_ACTIVE / WRITE_BLOCKED`
 - `READ_ACTIVE / WRITE_BLOCKED_UNTIL <timestamp>`
 
+DM pairing checks now support multiple API response shapes (`conversations`, nested `data`, `items/results/rows`) and print a short response preview + API log hint when the format is unknown.
+
 ### Moltbook API logging (challenge diagnostics)
 
 PiAgent now logs key Moltbook API responses to `~/.config/piagent/api.log` so you can
