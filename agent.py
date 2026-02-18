@@ -151,6 +151,162 @@ def _show_api_log(lines: int = 30):
 
 
 
+_CONFIG_DIR = Path.home() / ".config" / "piagent"
+_HISTORY_PATH = _CONFIG_DIR / "history"
+_AUDIT_LOG = _CONFIG_DIR / "agent.log"
+_API_LOG = _CONFIG_DIR / "api.log"
+_SECURITY_DIR = _CONFIG_DIR / "security"
+_LOCAL_MOLTTHREATS_BUNDLE = Path(__file__).with_name("molthreats_skill.md")
+_REMOTE_MOLTTHREATS_SKILL = "https://promptintel.novahunting.ai/skill.md"
+
+
+def _audit(command: str, status: str, detail: str = ""):
+    """Append command audit lines to ~/.config/piagent/agent.log."""
+    try:
+        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with _AUDIT_LOG.open("a", encoding="utf-8") as f:
+            msg = f"[{ts}] cmd={command} status={status}"
+            if detail:
+                msg += f" detail={detail}"
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
+
+def _api_audit(endpoint: str, method: str, status: str, body: str = ""):
+    """Append Moltbook API request/response diagnostics to ~/.config/piagent/api.log."""
+    try:
+        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with _API_LOG.open("a", encoding="utf-8") as f:
+            line = f"[{ts}] {method} {endpoint} status={status}"
+            if body:
+                compact = " ".join(body.replace("\n", " ").split())
+                line += f" body={compact[:700]}"
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def _moltbook_api_json(cfg: Config, method: str, endpoint: str, payload: dict = None) -> tuple:
+    """Call Moltbook API endpoint and return (status_code, parsed_json_or_none, raw_text)."""
+    # Compatibility: if caller passes legacy `submolt`, map it to `submolt_name`.
+    if isinstance(payload, dict) and "submolt" in payload and "submolt_name" not in payload:
+        payload = dict(payload)
+        payload["submolt_name"] = payload.pop("submolt")
+
+    url = "https://www.moltbook.com/api/v1" + endpoint
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", f"Bearer {cfg.api_key}")
+    if payload is not None:
+        req.add_header("Content-Type", "application/json")
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            raw = r.read().decode()
+            parsed = json.loads(raw) if raw else {}
+            _api_audit(endpoint, method, str(r.status), raw)
+            return r.status, parsed, raw
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode(errors="ignore")
+        parsed = None
+        try:
+            parsed = json.loads(raw) if raw else {}
+        except Exception:
+            parsed = None
+        _api_audit(endpoint, method, str(e.code), raw or str(e.reason))
+        return e.code, parsed, raw
+    except Exception as e:
+        _api_audit(endpoint, method, "error", str(e))
+        return 0, None, str(e)
+
+
+def _show_api_log(lines: int = 30):
+    if not _API_LOG.exists():
+        print("[Agent] No API log entries yet.")
+        return
+    try:
+        entries = _API_LOG.read_text(encoding="utf-8").splitlines()
+        tail = entries[-lines:]
+        print(f"[Agent] Last {len(tail)} API log entries ({_API_LOG}):")
+        for ln in tail:
+            print(f"  {ln}")
+    except Exception as e:
+        print(f"[Agent] ✗ Failed to read API log: {e}")
+
+
+
+
+def _latest_write_block_from_api_log() -> tuple:
+    """Return (until_ts, reason, line) from recent /posts 403 entries in api log."""
+    if not _API_LOG.exists():
+        return "", "", ""
+    try:
+        lines = _API_LOG.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return "", "", ""
+
+    for line in reversed(lines[-200:]):
+        low = line.lower()
+        if "/posts" not in low or "status=403" not in low:
+            continue
+        until_ts = ""
+        reason = ""
+        m = re.search(r"suspended until\s+([0-9t:\-.z]+)", line, flags=re.IGNORECASE)
+        if m:
+            until_ts = m.group(1)
+        m2 = re.search(r'reason:\s*([^\"]+?)(?:\"|$)', line, flags=re.IGNORECASE)
+        if m2:
+            reason = m2.group(1).strip()
+        if not reason and "forbidden" in low:
+            reason = "Forbidden on /posts"
+        return until_ts, reason, line
+    return "", "", ""
+
+
+def _probe_write_capability(cfg: Config) -> tuple:
+    """Safe write-capability probe using intentionally invalid post payload.
+
+    Returns: (state, message)
+      - WRITE_BLOCKED_UNTIL <ts>
+      - WRITE_BLOCKED
+      - WRITE_ALLOWED_OR_VALIDATION
+      - WRITE_PROBE_FAILED
+    """
+    status, data, raw = _moltbook_api_json(
+        cfg,
+        "POST",
+        "/posts",
+        payload={"submolt_name": "general", "title": "", "content": ""},
+    )
+    txt = ""
+    if isinstance(data, dict):
+        txt = json.dumps(data)
+    else:
+        txt = raw or ""
+    low = txt.lower()
+
+    if status == 403:
+        m = re.search(r"suspended until\s+([0-9t:\-.z]+)", txt, flags=re.IGNORECASE)
+        if m:
+            return f"WRITE_BLOCKED_UNTIL {m.group(1)}", txt[:220]
+        return "WRITE_BLOCKED", txt[:220]
+
+    if status in (200, 201, 400, 401, 422):
+        return "WRITE_ALLOWED_OR_VALIDATION", txt[:220]
+
+    return "WRITE_PROBE_FAILED", f"status={status} {txt[:180]}"
+
+
+def _post_debug(cfg: Config):
+    """Print post preflight diagnostics with latest block reason."""
+    print("[Agent] Post debug")
+    api_present = bool(cfg.api_key)
+    target = cfg.current_post_submolt()
+    title, content = _generate_post_with_failover(cfg)
+    payload_keys = ["submolt_name", "title", "content"]
 
 def _latest_write_block_from_api_log() -> tuple:
     """Return (until_ts, reason, line) from recent /posts 403 entries in api log."""
@@ -470,6 +626,69 @@ def _show_status(cfg: Config):
     skill_meta = _parse_molthreats_metadata(skill_text)
     print(f"  MoltThreats skill: v{skill_meta.get('version', 'unknown')} ({skill_meta.get('last_updated', 'unknown')})")
 
+        probe_state, probe_msg = _probe_write_capability(cfg)
+        if probe_state.startswith("WRITE_BLOCKED_UNTIL"):
+            print(f"[Agent] ⚠️ Capability state: READ_ACTIVE / {probe_state}")
+            print(f"        Detail: {probe_msg}")
+            return
+        if probe_state == "WRITE_BLOCKED":
+            print("[Agent] ⚠️ Capability state: READ_ACTIVE / WRITE_BLOCKED")
+            print(f"        Detail: {probe_msg}")
+            return
+        print("[Agent] ✓ Capability state: READ_ACTIVE / WRITE_ALLOWED_OR_VALIDATION")
+    except Exception as e:
+        print(f"[Agent] ✗ Failed to check status: {e}")
+        print(f"        API log: {_API_LOG}")
+
+
+def _setup_owner_email(cfg: Config, email: str = ""):
+    """Setup owner email so humans can manage the agent account."""
+    if not cfg.api_key:
+        print("[Agent] ✗ No API key found. Run: python3 agent.py --setup")
+        return
+
+    print("[Agent] Owner Email Setup")
+    print("        This allows your human to log in to Moltbook and manage your account.")
+
+    value = email.strip() if email else input("        Enter owner email: ").strip()
+    if not value or "@" not in value:
+        print("[Agent] ✗ Invalid email address")
+        return
+
+    print(f"[Agent] Setting up email: {value}")
+    try:
+        status_code, response, raw = _moltbook_api_json(
+            cfg,
+            "POST",
+            "/agents/me/setup-owner-email",
+            payload={"email": value},
+        )
+
+        if status_code >= 400:
+            if isinstance(response, dict):
+                print(f"[Agent] ✗ Setup failed: {response.get('error', 'unknown')}")
+                if response.get("hint"):
+                    print(f"        Hint: {response.get('hint')}")
+            else:
+                print(f"[Agent] ✗ Setup failed: {raw[:200]}")
+            print(f"        API log: {_API_LOG}")
+            return
+
+        if not isinstance(response, dict):
+            print(f"[Agent] ✗ Setup failed: Unexpected response ({raw[:200]})")
+            print(f"        API log: {_API_LOG}")
+            return
+
+        if response.get("success"):
+            print("[Agent] ✓ Email setup initiated!")
+            print(f"        📧 Check {value} for a verification link")
+            print("        Then verify X and log in to Moltbook.")
+            return
+
+        print(f"[Agent] ✗ Setup failed: {response.get('error', 'unknown')}")
+    except Exception as e:
+        print(f"[Agent] ✗ Failed: {e}")
+        print(f"        API log: {_API_LOG}")
 
 
 def _doctor(cfg: Config):
@@ -2028,6 +2247,72 @@ def _run_noninteractive_action(args, cfg: Config, mb: MoltbookClient):
     if args.status:
         _show_status(cfg)
         return True
+
+    if args.doctor:
+        _doctor(cfg)
+        return True
+
+    if args.dm_policy_set:
+        _handle_dm_policy(cfg, f"set {args.dm_policy_set}")
+        return True
+
+    if args.guardrail_set:
+        _handle_guardrail(cfg, f"set {args.guardrail_set}")
+        return True
+
+    if args.model_failover_set:
+        _handle_model_failover(cfg, f"set {args.model_failover_set}")
+        return True
+
+    if args.webhook_listen:
+        token = args.webhook_token or os.environ.get("PIAGENT_WEBHOOK_TOKEN", "")
+        _run_webhook_listener(cfg, host=args.webhook_host, port=args.webhook_port, token=token)
+        return True
+
+    if args.threat_scan:
+        _run_threat_scan(cfg, sample_posts=args.threat_posts, comments_per_post=args.threat_comments)
+        return True
+
+    if args.threat_skill_sync:
+        _run_threat_skill_sync()
+        return True
+
+    if args.threat_skill_status:
+        _show_threat_skill_status()
+        return True
+
+    if args.threats_on:
+        cfg.threat_scan_enabled = True
+        print("[Agent] ✓ Heartbeat threat scan enabled")
+        return True
+
+    if args.threats_off:
+        cfg.threat_scan_enabled = False
+        print("[Agent] ✓ Heartbeat threat scan disabled")
+        return True
+
+    if args.threats_status:
+        print(f"[Agent] Heartbeat threat scan: {'ENABLED' if cfg.threat_scan_enabled else 'DISABLED'}")
+        return True
+
+    if args.api_log:
+        _show_api_log(50)
+        return True
+
+    if args.suspension_check:
+        _check_suspension_status(cfg)
+        return True
+
+    if args.setup_email:
+        if cfg.guardrail_mode == "block":
+            print("[Agent] ⛔ Blocked by guardrail policy: setup-email")
+            return True
+        if not _guardrail_allows(cfg, "setup-email", interactive=False):
+            return True
+        _setup_owner_email(cfg, args.setup_email)
+        return True
+
+    return False
 
     if args.doctor:
         _doctor(cfg)
