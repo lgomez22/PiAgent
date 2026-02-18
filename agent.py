@@ -626,6 +626,7 @@ def _show_status(cfg: Config):
     skill_meta = _parse_molthreats_metadata(skill_text)
     print(f"  MoltThreats skill: v{skill_meta.get('version', 'unknown')} ({skill_meta.get('last_updated', 'unknown')})")
 
+    try:
         probe_state, probe_msg = _probe_write_capability(cfg)
         if probe_state.startswith("WRITE_BLOCKED_UNTIL"):
             print(f"[Agent] ⚠️ Capability state: READ_ACTIVE / {probe_state}")
