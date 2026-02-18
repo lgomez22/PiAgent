@@ -151,6 +151,162 @@ def _show_api_log(lines: int = 30):
 
 
 
+_CONFIG_DIR = Path.home() / ".config" / "piagent"
+_HISTORY_PATH = _CONFIG_DIR / "history"
+_AUDIT_LOG = _CONFIG_DIR / "agent.log"
+_API_LOG = _CONFIG_DIR / "api.log"
+_SECURITY_DIR = _CONFIG_DIR / "security"
+_LOCAL_MOLTTHREATS_BUNDLE = Path(__file__).with_name("molthreats_skill.md")
+_REMOTE_MOLTTHREATS_SKILL = "https://promptintel.novahunting.ai/skill.md"
+
+
+def _audit(command: str, status: str, detail: str = ""):
+    """Append command audit lines to ~/.config/piagent/agent.log."""
+    try:
+        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with _AUDIT_LOG.open("a", encoding="utf-8") as f:
+            msg = f"[{ts}] cmd={command} status={status}"
+            if detail:
+                msg += f" detail={detail}"
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
+
+def _api_audit(endpoint: str, method: str, status: str, body: str = ""):
+    """Append Moltbook API request/response diagnostics to ~/.config/piagent/api.log."""
+    try:
+        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        with _API_LOG.open("a", encoding="utf-8") as f:
+            line = f"[{ts}] {method} {endpoint} status={status}"
+            if body:
+                compact = " ".join(body.replace("\n", " ").split())
+                line += f" body={compact[:700]}"
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def _moltbook_api_json(cfg: Config, method: str, endpoint: str, payload: dict = None) -> tuple:
+    """Call Moltbook API endpoint and return (status_code, parsed_json_or_none, raw_text)."""
+    # Compatibility: if caller passes legacy `submolt`, map it to `submolt_name`.
+    if isinstance(payload, dict) and "submolt" in payload and "submolt_name" not in payload:
+        payload = dict(payload)
+        payload["submolt_name"] = payload.pop("submolt")
+
+    url = "https://www.moltbook.com/api/v1" + endpoint
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", f"Bearer {cfg.api_key}")
+    if payload is not None:
+        req.add_header("Content-Type", "application/json")
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            raw = r.read().decode()
+            parsed = json.loads(raw) if raw else {}
+            _api_audit(endpoint, method, str(r.status), raw)
+            return r.status, parsed, raw
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode(errors="ignore")
+        parsed = None
+        try:
+            parsed = json.loads(raw) if raw else {}
+        except Exception:
+            parsed = None
+        _api_audit(endpoint, method, str(e.code), raw or str(e.reason))
+        return e.code, parsed, raw
+    except Exception as e:
+        _api_audit(endpoint, method, "error", str(e))
+        return 0, None, str(e)
+
+
+def _show_api_log(lines: int = 30):
+    if not _API_LOG.exists():
+        print("[Agent] No API log entries yet.")
+        return
+    try:
+        entries = _API_LOG.read_text(encoding="utf-8").splitlines()
+        tail = entries[-lines:]
+        print(f"[Agent] Last {len(tail)} API log entries ({_API_LOG}):")
+        for ln in tail:
+            print(f"  {ln}")
+    except Exception as e:
+        print(f"[Agent] ✗ Failed to read API log: {e}")
+
+
+
+
+def _latest_write_block_from_api_log() -> tuple:
+    """Return (until_ts, reason, line) from recent /posts 403 entries in api log."""
+    if not _API_LOG.exists():
+        return "", "", ""
+    try:
+        lines = _API_LOG.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return "", "", ""
+
+    for line in reversed(lines[-200:]):
+        low = line.lower()
+        if "/posts" not in low or "status=403" not in low:
+            continue
+        until_ts = ""
+        reason = ""
+        m = re.search(r"suspended until\s+([0-9t:\-.z]+)", line, flags=re.IGNORECASE)
+        if m:
+            until_ts = m.group(1)
+        m2 = re.search(r'reason:\s*([^\"]+?)(?:\"|$)', line, flags=re.IGNORECASE)
+        if m2:
+            reason = m2.group(1).strip()
+        if not reason and "forbidden" in low:
+            reason = "Forbidden on /posts"
+        return until_ts, reason, line
+    return "", "", ""
+
+
+def _probe_write_capability(cfg: Config) -> tuple:
+    """Safe write-capability probe using intentionally invalid post payload.
+
+    Returns: (state, message)
+      - WRITE_BLOCKED_UNTIL <ts>
+      - WRITE_BLOCKED
+      - WRITE_ALLOWED_OR_VALIDATION
+      - WRITE_PROBE_FAILED
+    """
+    status, data, raw = _moltbook_api_json(
+        cfg,
+        "POST",
+        "/posts",
+        payload={"submolt_name": "general", "title": "", "content": ""},
+    )
+    txt = ""
+    if isinstance(data, dict):
+        txt = json.dumps(data)
+    else:
+        txt = raw or ""
+    low = txt.lower()
+
+    if status == 403:
+        m = re.search(r"suspended until\s+([0-9t:\-.z]+)", txt, flags=re.IGNORECASE)
+        if m:
+            return f"WRITE_BLOCKED_UNTIL {m.group(1)}", txt[:220]
+        return "WRITE_BLOCKED", txt[:220]
+
+    if status in (200, 201, 400, 401, 422):
+        return "WRITE_ALLOWED_OR_VALIDATION", txt[:220]
+
+    return "WRITE_PROBE_FAILED", f"status={status} {txt[:180]}"
+
+
+def _post_debug(cfg: Config):
+    """Print post preflight diagnostics with latest block reason."""
+    print("[Agent] Post debug")
+    api_present = bool(cfg.api_key)
+    target = cfg.current_post_submolt()
+    title, content = _generate_post_with_failover(cfg)
+    payload_keys = ["submolt_name", "title", "content"]
 
 def _latest_write_block_from_api_log() -> tuple:
     """Return (until_ts, reason, line) from recent /posts 403 entries in api log."""
@@ -1141,11 +1297,6 @@ def _setup_owner_email(cfg: Config, email: str = ""):
         print(f"[Agent] ✗ Failed: {e}")
         print(f"        API log: {_API_LOG}")
 
-def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) -> bool:
-    """Route a user line to the right handler. Returns False to quit."""
-    parts = line.strip().split(None, 2)
-    if not parts:
-        return True
 
     cmd = parts[0].lower()
     sub = parts[1] if len(parts) > 1 else ""
@@ -1415,6 +1566,12 @@ def _run_noninteractive_action(args, cfg: Config, mb: MoltbookClient):
     if args.post_preview:
         _run_post_now(cfg, dry_run=True)
         return True
+    if mode == "block":
+        print(f"[Agent] ⛔ Blocked by guardrail policy: {action_name}")
+        return False
+    if not interactive:
+        print(f"[Agent] ⛔ Non-interactive action requires approval: {action_name}")
+        return False
 
     if args.post_debug:
         _post_debug(cfg)
@@ -1509,6 +1666,9 @@ def _run_noninteractive_action(args, cfg: Config, mb: MoltbookClient):
 
     return False
 
+    if not unknown:
+        print("[Agent] ✓ No unpaired DM senders detected.")
+        return
 
 def main():
     parser = argparse.ArgumentParser(description="PiAgent — lightweight Pi AI agent")
