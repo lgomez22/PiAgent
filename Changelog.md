@@ -42,8 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `suspension-check` now records API response bodies/hints and surfaces verification-challenge clues with API log path
 
 ### Fixed
+- Updated `scripts/get_clean_files.sh` to default to `main` (to avoid drift against `origin/main`) with automatic fallback to known-good ref `5662cc8` when verification fails.
 - Added `scripts/get_clean_files.sh` and README recovery instructions for restoring a clean `agent.py` (and core files) from GitHub when local merges are corrupted.
-- Hardened `scripts/get_clean_files.sh` to download into a temp dir, verify syntax before replacing local files, and default to known-good recovery ref `5662cc8` (override with `REPO_REF=main`).
+- Hardened `scripts/get_clean_files.sh` to download into a temp dir, verify syntax before replacing local files, and use verified download staging before replace; `main` is default with fallback to known-good `5662cc8` when needed.
 - Added `scripts/verify_repo_health.sh` to catch unresolved merge markers and run syntax checks before runtime, and wired `get_clean_files.sh` to run it automatically.
 - REPL loop now exits only on an explicit `False` from `_route()` so accidental missing returns during merges do not terminate the session after a command.
 - Added a defensive `mode = cfg.guardrail_mode` alias in `_route()` to prevent merge-conflict regressions from crashing help/REPL command routing with `NameError`.
@@ -91,8 +92,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config stores cached submolts list and rotation index
 
 ### Fixed
+- Updated `scripts/get_clean_files.sh` to default to `main` (to avoid drift against `origin/main`) with automatic fallback to known-good ref `5662cc8` when verification fails.
 - Added `scripts/get_clean_files.sh` and README recovery instructions for restoring a clean `agent.py` (and core files) from GitHub when local merges are corrupted.
-- Hardened `scripts/get_clean_files.sh` to download into a temp dir, verify syntax before replacing local files, and default to known-good recovery ref `5662cc8` (override with `REPO_REF=main`).
+- Hardened `scripts/get_clean_files.sh` to download into a temp dir, verify syntax before replacing local files, and use verified download staging before replace; `main` is default with fallback to known-good `5662cc8` when needed.
 - Added `scripts/verify_repo_health.sh` to catch unresolved merge markers and run syntax checks before runtime, and wired `get_clean_files.sh` to run it automatically.
 - None (this is a feature release)
 - `_upvote_post()` TypeError - incorrect `_api()` call signature (used wrong method)

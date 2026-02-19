@@ -137,12 +137,18 @@ cd ~/piagent
 bash scripts/get_clean_files.sh
 ```
 
-`get_clean_files.sh` uses a known-good recovery ref by default (`5662cc8`) and validates downloads before replacing local files.
+`get_clean_files.sh` now targets `main` by default so your working directory stays aligned with `origin/main`. If the `main` snapshot fails verification, it automatically falls back to known-good ref `5662cc8`.
 
-To target a different GitHub ref (for example once `main` is fixed):
+To force a specific GitHub ref:
 
 ```bash
-REPO_REF=main bash scripts/get_clean_files.sh
+REPO_REF=5662cc8 bash scripts/get_clean_files.sh
+```
+
+If recovery changed tracked files and you want to discard local modifications:
+
+```bash
+git restore Changelog.md Readme.md agent.py heartbeat.py llm.py
 ```
 
 Then run the health check (detects unresolved merge markers like `<<<<<<<` and runs syntax checks):
