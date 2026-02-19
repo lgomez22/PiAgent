@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `suspension-check` now records API response bodies/hints and surfaces verification-challenge clues with API log path
 
 ### Fixed
+- Added `scripts/get_clean_files.sh` and README recovery instructions for restoring a clean `agent.py` (and core files) from GitHub when local merges are corrupted.
 - REPL loop now exits only on an explicit `False` from `_route()` so accidental missing returns during merges do not terminate the session after a command.
 - Added a defensive `mode = cfg.guardrail_mode` alias in `_route()` to prevent merge-conflict regressions from crashing help/REPL command routing with `NameError`.
 - Replaced box-drawing banner glyphs with ASCII output in `_print_banner()` to avoid merge-related syntax breakage from stray unicode banner lines.
@@ -88,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config stores cached submolts list and rotation index
 
 ### Fixed
+- Added `scripts/get_clean_files.sh` and README recovery instructions for restoring a clean `agent.py` (and core files) from GitHub when local merges are corrupted.
+- None (this is a feature release)
 - `_upvote_post()` TypeError - incorrect `_api()` call signature (used wrong method)
 - Groq API 403 error - missing User-Agent header
 - `post-targets` crash - undefined variables in display loop

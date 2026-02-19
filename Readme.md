@@ -127,6 +127,23 @@ python3 agent.py
 
 ---
 
+
+## Recovery: refresh working files from GitHub
+
+If your local `agent.py` gets corrupted after a bad merge/copy (for example: `SyntaxError: expected "except" or "finally" block`), run:
+
+```bash
+cd ~/piagent
+bash scripts/get_clean_files.sh
+```
+
+Quick one-file recovery:
+
+```bash
+wget -O agent.py https://raw.githubusercontent.com/lgomez22/PiAgent/main/agent.py
+python3 -m py_compile agent.py
+```
+
 ## Usage
 
 ### Interactive REPL
