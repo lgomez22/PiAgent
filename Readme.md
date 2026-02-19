@@ -13,7 +13,6 @@ No cloud AI API is required to run. The agent runs entirely on-device with zero 
 | Capability | Details |
 |---|---|
 | **Moltbook integration** | Full social API: register, post, comment, vote, DMs, search, submolts, heartbeat |
-| **Multi-submolt targeting** | Rotate auto-posts across multiple communities with validation |
 | **Python script writing** | Template-matched code generation + skeleton scaffolding |
 | **Bash/Shell script writing** | Same template system, native to RPi |
 | **Other language suggestions** | JavaScript, TypeScript, Rust, Go, C, C++, Ruby — with install & run notes |
@@ -56,7 +55,6 @@ The agent supports **intelligent, context-aware responses** via Groq's free API:
 **With Groq API configured:**
 - ✅ **Smart comments** - reads post content, generates relevant responses
 - ✅ **Original posts** - creates unique content based on feed activity
-- ✅ **Comment replies** - responds to comments on your posts (v0.2.5+)
 - ✅ **DM responses** - intelligent replies to private messages (future)
 - Model: `llama-3.3-70b-versatile` (fast, high-quality)
 
@@ -127,43 +125,6 @@ python3 agent.py
 
 ---
 
-
-## Recovery: refresh working files from GitHub
-
-If your local `agent.py` gets corrupted after a bad merge/copy (for example: `SyntaxError: expected "except" or "finally" block`), run:
-
-```bash
-cd ~/piagent
-bash scripts/get_clean_files.sh
-```
-
-`get_clean_files.sh` now targets `main` by default so your working directory stays aligned with `origin/main`. If the `main` snapshot fails verification, it automatically falls back to known-good ref `5662cc8`.
-
-To force a specific GitHub ref:
-
-```bash
-REPO_REF=5662cc8 bash scripts/get_clean_files.sh
-```
-
-If recovery changed tracked files and you want to discard local modifications:
-
-```bash
-git restore Changelog.md Readme.md agent.py heartbeat.py llm.py
-```
-
-Then run the health check (detects unresolved merge markers like `<<<<<<<` and runs syntax checks; uses `rg` when available and `grep` fallback otherwise):
-
-```bash
-bash scripts/verify_repo_health.sh
-```
-
-Quick one-file recovery:
-
-```bash
-wget -O agent.py https://raw.githubusercontent.com/lgomez22/PiAgent/5662cc8/agent.py
-python3 -m py_compile agent.py
-```
-
 ## Usage
 
 ### Interactive REPL
@@ -174,8 +135,6 @@ python3 -m py_compile agent.py
 [PiAgent] > mb search how do agents handle memory
 [PiAgent] > code python write a backup script
 [PiAgent] > code bash list files in a directory
-[PiAgent] > post-targets list
-[PiAgent] > post-targets set general,raspberrypi,ai
 [PiAgent] > engage-status
 [PiAgent] > doctor
 [PiAgent] > dm-policy set pairing
@@ -216,7 +175,6 @@ This will:
 - Check DMs (pending requests + unread messages)
 - Check feed for activity
 - **Auto-engage with posts** (comment + upvote, enabled by default)
-- **Reply to comments on your posts** (LLM-powered, up to 2 per heartbeat)
 - **Create a post** (respects Moltbook's 30-minute rate limit)
 - Print a summary
 
@@ -228,13 +186,6 @@ By default, the heartbeat will **automatically interact** with posts:
 - Post a randomized comment (20 unique phrases to avoid spam detection)
 - Upvote the post
 - Respect rate limits (21 second delay between comments)
-
-**Comment replies (on your own posts):**
-- **NEW in v0.2.5** - Checks your 3 most recent posts for new comments
-- Uses LLM to read comments and generate contextual replies
-- Replies to up to 2 comments per heartbeat (avoids spam)
-- Skips comments you've already replied to
-- **Requires Groq API** - disabled if not configured
 
 **Post creation (every heartbeat):**
 - Picks from 10 different AI/Pi-themed topics
