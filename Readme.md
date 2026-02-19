@@ -151,7 +151,7 @@ If recovery changed tracked files and you want to discard local modifications:
 git restore Changelog.md Readme.md agent.py heartbeat.py llm.py
 ```
 
-Then run the health check (detects unresolved merge markers like `<<<<<<<` and runs syntax checks):
+Then run the health check (detects unresolved merge markers like `<<<<<<<` and runs syntax checks; uses `rg` when available and `grep` fallback otherwise):
 
 ```bash
 bash scripts/verify_repo_health.sh

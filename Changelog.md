@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `suspension-check` now records API response bodies/hints and surfaces verification-challenge clues with API log path
 
 ### Fixed
+- `scripts/verify_repo_health.sh` now gracefully falls back to `grep` when `rg` is not installed, so merge-marker checks still run on minimal Pi environments.
 - Updated `scripts/get_clean_files.sh` to default to `main` (to avoid drift against `origin/main`) with automatic fallback to known-good ref `5662cc8` when verification fails.
 - Added `scripts/get_clean_files.sh` and README recovery instructions for restoring a clean `agent.py` (and core files) from GitHub when local merges are corrupted.
 - Hardened `scripts/get_clean_files.sh` to download into a temp dir, verify syntax before replacing local files, and use verified download staging before replace; `main` is default with fallback to known-good `5662cc8` when needed.
@@ -92,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Config stores cached submolts list and rotation index
 
 ### Fixed
+- `scripts/verify_repo_health.sh` now gracefully falls back to `grep` when `rg` is not installed, so merge-marker checks still run on minimal Pi environments.
 - Updated `scripts/get_clean_files.sh` to default to `main` (to avoid drift against `origin/main`) with automatic fallback to known-good ref `5662cc8` when verification fails.
 - Added `scripts/get_clean_files.sh` and README recovery instructions for restoring a clean `agent.py` (and core files) from GitHub when local merges are corrupted.
 - Hardened `scripts/get_clean_files.sh` to download into a temp dir, verify syntax before replacing local files, and use verified download staging before replace; `main` is default with fallback to known-good `5662cc8` when needed.
