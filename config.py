@@ -110,3 +110,125 @@ class Config:
         """Record that we just made a post (for display/tracking only)."""
         self._hb["last_post"] = time.time()
         self._save(self._hb_path, self._hb)
+
+    # ── dm safety policy ─────────────────────────────────────────────
+    @property
+    def dm_policy(self) -> str:
+        """DM policy: open | pairing | allowlist."""
+        val = str(self._hb.get("dm_policy", "open")).lower()
+        return val if val in ("open", "pairing", "allowlist") else "open"
+
+    @dm_policy.setter
+    def dm_policy(self, value: str):
+        val = str(value).lower().strip()
+        self._hb["dm_policy"] = val if val in ("open", "pairing", "allowlist") else "open"
+        self._save(self._hb_path, self._hb)
+
+    @property
+    def dm_allowlist(self) -> list:
+        """Approved DM identities for pairing/allowlist mode."""
+        vals = self._hb.get("dm_allowlist", [])
+        if isinstance(vals, list):
+            cleaned = [str(v).strip() for v in vals if str(v).strip()]
+            return sorted(set(cleaned))
+        return []
+
+    @dm_allowlist.setter
+    def dm_allowlist(self, values: list):
+        cleaned = sorted(set(str(v).strip() for v in values if str(v).strip()))
+        self._hb["dm_allowlist"] = cleaned
+        self._save(self._hb_path, self._hb)
+
+    # ── guardrails and failover ──────────────────────────────────────
+    @property
+    def guardrail_mode(self) -> str:
+        """Action guardrail mode: allow | require_approval | block."""
+        val = str(self._hb.get("guardrail_mode", "allow")).lower()
+        return val if val in ("allow", "require_approval", "block") else "allow"
+
+    @guardrail_mode.setter
+    def guardrail_mode(self, value: str):
+        val = str(value).lower().strip()
+        self._hb["guardrail_mode"] = val if val in ("allow", "require_approval", "block") else "allow"
+        self._save(self._hb_path, self._hb)
+
+    @property
+    def model_failover_order(self) -> list:
+        """Ordered failover providers (currently supports groq/template)."""
+        vals = self._hb.get("model_failover_order", ["groq", "template"])
+        if not isinstance(vals, list):
+            return ["groq", "template"]
+        cleaned = [str(v).strip().lower() for v in vals if str(v).strip()]
+        allowed = [v for v in cleaned if v in ("groq", "template")]
+        if not allowed:
+            return ["groq", "template"]
+        # preserve order and uniqueness
+        out = []
+        for item in allowed:
+            if item not in out:
+                out.append(item)
+        return out
+
+    @model_failover_order.setter
+    def model_failover_order(self, values: list):
+        cleaned = []
+        for value in values:
+            val = str(value).strip().lower()
+            if val in ("groq", "template") and val not in cleaned:
+                cleaned.append(val)
+        self._hb["model_failover_order"] = cleaned if cleaned else ["groq", "template"]
+        self._save(self._hb_path, self._hb)
+
+    @property
+    def threat_scan_enabled(self) -> bool:
+        """Whether heartbeat should run moltThreats-style content scanning."""
+        return self._hb.get("threat_scan_enabled", False)
+
+    @threat_scan_enabled.setter
+    def threat_scan_enabled(self, value: bool):
+        self._hb["threat_scan_enabled"] = bool(value)
+        self._save(self._hb_path, self._hb)
+
+    # ── multi-submolt targeting ─────────────────────────────────────
+    @property
+    def post_submolts(self) -> list:
+        """Ordered list of submolts to target for auto-posting."""
+        submolts = self._hb.get("post_submolts", ["general"])
+        if isinstance(submolts, list) and submolts:
+            return [str(s).strip() for s in submolts if str(s).strip()]
+        return ["general"]
+
+    @post_submolts.setter
+    def post_submolts(self, values: list):
+        cleaned = [str(v).strip() for v in values if str(v).strip()]
+        self._hb["post_submolts"] = cleaned if cleaned else ["general"]
+        self._hb["post_submolt_index"] = 0
+        self._save(self._hb_path, self._hb)
+
+    @property
+    def post_submolt_index(self) -> int:
+        """Rotation index for auto-post submolts."""
+        try:
+            return int(self._hb.get("post_submolt_index", 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @post_submolt_index.setter
+    def post_submolt_index(self, value: int):
+        self._hb["post_submolt_index"] = max(int(value), 0)
+        self._save(self._hb_path, self._hb)
+
+    def current_post_submolt(self) -> str:
+        """Return the current submolt without advancing the rotation."""
+        targets = self.post_submolts
+        index = self.post_submolt_index
+        if not targets:
+            return "general"
+        return targets[index % len(targets)]
+
+    def advance_post_submolt(self):
+        """Advance the submolt rotation after a successful post."""
+        targets = self.post_submolts
+        if not targets:
+            return
+        self.post_submolt_index = (self.post_submolt_index + 1) % len(targets)
