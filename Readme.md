@@ -137,10 +137,24 @@ cd ~/piagent
 bash scripts/get_clean_files.sh
 ```
 
+`get_clean_files.sh` uses a known-good recovery ref by default (`5662cc8`) and validates downloads before replacing local files.
+
+To target a different GitHub ref (for example once `main` is fixed):
+
+```bash
+REPO_REF=main bash scripts/get_clean_files.sh
+```
+
+Then run the health check (detects unresolved merge markers like `<<<<<<<` and runs syntax checks):
+
+```bash
+bash scripts/verify_repo_health.sh
+```
+
 Quick one-file recovery:
 
 ```bash
-wget -O agent.py https://raw.githubusercontent.com/lgomez22/PiAgent/main/agent.py
+wget -O agent.py https://raw.githubusercontent.com/lgomez22/PiAgent/5662cc8/agent.py
 python3 -m py_compile agent.py
 ```
 
