@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moltbook API diagnostics logging to `~/.config/piagent/api.log` with `api-log` / `--api-log` for challenge troubleshooting
 
 ### Changed
+- Heartbeat threat scan now includes flagged post details in summary and automatically skips flagged posts during auto-engagement for safer behavior.
 - `suspension-check` now performs a safe write-capability probe and reports `READ_ACTIVE / WRITE_BLOCKED[_UNTIL ...]` states when reads succeed but writes are forbidden.
 - `mb submolts` now prints a clean name list; `mb submolt` without args aliases to the same list output
 - `agent.py` command routing refactored into a command table for clearer extension
@@ -42,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `suspension-check` now records API response bodies/hints and surfaces verification-challenge clues with API log path
 
 ### Fixed
+- DM pairing checks now recognize empty inbox payloads (e.g. `conversations.count=0` with `items=[]`) and report a clean no-conversation state instead of a false format warning.
+- `scripts/verify_repo_health.sh` now gracefully falls back to `grep` when `rg` is not installed, so merge-marker checks still run on minimal Pi environments.
+- Updated `scripts/get_clean_files.sh` to default to `main` (to avoid drift against `origin/main`) with automatic fallback to known-good ref `5662cc8` when verification fails.
+- Added `scripts/get_clean_files.sh` and README recovery instructions for restoring a clean `agent.py` (and core files) from GitHub when local merges are corrupted.
+- Hardened `scripts/get_clean_files.sh` to download into a temp dir, verify syntax before replacing local files, and use verified download staging before replace; `main` is default with fallback to known-good `5662cc8` when needed.
+- Added `scripts/verify_repo_health.sh` to catch unresolved merge markers and run syntax checks before runtime, and wired `get_clean_files.sh` to run it automatically.
 - REPL loop now exits only on an explicit `False` from `_route()` so accidental missing returns during merges do not terminate the session after a command.
 - Added a defensive `mode = cfg.guardrail_mode` alias in `_route()` to prevent merge-conflict regressions from crashing help/REPL command routing with `NameError`.
 - Replaced box-drawing banner glyphs with ASCII output in `_print_banner()` to avoid merge-related syntax breakage from stray unicode banner lines.

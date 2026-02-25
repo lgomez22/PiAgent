@@ -571,6 +571,32 @@ def _extract_dm_conversations(payload) -> list:
     return []
 
 
+def _dm_payload_is_empty_inbox(payload) -> bool:
+    """Return True when DM API payload explicitly indicates zero conversations."""
+    if not isinstance(payload, dict):
+        return False
+
+    conv = payload.get("conversations")
+    if isinstance(conv, dict):
+        count = conv.get("count")
+        items = conv.get("items")
+        try:
+            count_num = int(str(count).strip()) if count is not None else None
+        except Exception:
+            count_num = None
+        if count_num == 0:
+            return True
+        if isinstance(items, list) and not items:
+            return True
+
+    total_unread = payload.get("total_unread")
+    inbox = payload.get("inbox")
+    if str(total_unread).strip() in ("0", "00") and inbox:
+        return True
+
+    return False
+
+
 def _extract_dm_counterpart_name(conv: dict) -> str:
     """Extract sender/counterpart name from multiple conversation shapes."""
     if not isinstance(conv, dict):
@@ -622,6 +648,9 @@ def _check_dm_pairing(cfg: Config):
 
     conversations = _extract_dm_conversations(data)
     if not conversations:
+        if _dm_payload_is_empty_inbox(data):
+            print("[Agent] ✓ No DM conversations in inbox.")
+            return
         print("[Agent] ⚠️ Unexpected DM conversation response format")
         preview = raw[:220].replace("\n", " ") if raw else str(data)[:220]
         print(f"        Preview: {preview}")

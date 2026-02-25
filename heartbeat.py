@@ -245,7 +245,7 @@ def run_threat_scan(api_key: str, posts: list = None, max_posts: int = 10, comme
 # Known local version — bump this if you edit skill files locally
 # This should match https://www.moltbook.com/skill.json "version" field
 # ---------------------------------------------------------------------------
-_LOCAL_SKILL_VERSION = "1.7.0"
+_LOCAL_SKILL_VERSION = "1.11.0"
 
 
 def run_heartbeat(cfg: Config, mb):
@@ -348,11 +348,24 @@ def run_heartbeat(cfg: Config, mb):
         notes.append("📰 Feed is empty or returned no posts.")
 
     # ── 4b. Optional threat scan (moltThreats-style) ───────────────
+    flagged_post_ids = set()
     if cfg.threat_scan_enabled:
         print("[HB] Running threat scan (moltThreats)...")
         findings = run_threat_scan(key, posts=posts, max_posts=10, comments_per_post=5)
         if findings:
             issues.append(f"🛡️ Threat scan flagged {len(findings)} item(s). Run: threat-scan")
+            for finding in findings:
+                pid = finding.get("post_id")
+                if pid:
+                    flagged_post_ids.add(pid)
+            for finding in findings[:3]:
+                ftype = finding.get("type", "item")
+                pid = finding.get("post_id", "?")
+                labels = ", ".join(finding.get("labels", [])) or "unknown"
+                title = finding.get("title", "(no title)")
+                notes.append(f"🛡️ Flagged {ftype}: post {pid} [{labels}] — \"{title[:70]}\"")
+            if len(findings) > 3:
+                notes.append(f"🛡️ +{len(findings)-3} additional flagged item(s) (see threat-scan output)")
         else:
             notes.append("🛡️ Threat scan: no suspicious content detected in sampled posts/comments.")
 
@@ -374,6 +387,12 @@ def run_heartbeat(cfg: Config, mb):
 
     # ── 6. Automated engagement ──────────────────────────────────────
     if engagement_targets and cfg.auto_engage:
+        if flagged_post_ids:
+            before = len(engagement_targets)
+            engagement_targets = [p for p in engagement_targets if p.get("id") not in flagged_post_ids]
+            skipped = before - len(engagement_targets)
+            if skipped > 0:
+                print(f"[HB] 🛡️ Skipping {skipped} flagged post(s) during auto-engagement.")
         print("[HB] 🤖 Automated engagement starting...")
         engaged_count = 0
         
