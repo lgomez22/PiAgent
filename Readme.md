@@ -125,6 +125,43 @@ python3 agent.py
 
 ---
 
+
+## Recovery: refresh working files from GitHub
+
+If your local `agent.py` gets corrupted after a bad merge/copy (for example: `SyntaxError: expected "except" or "finally" block`), run:
+
+```bash
+cd ~/piagent
+bash scripts/get_clean_files.sh
+```
+
+`get_clean_files.sh` now targets `main` by default so your working directory stays aligned with `origin/main`. If the `main` snapshot fails verification, it automatically falls back to known-good ref `5662cc8`.
+
+To force a specific GitHub ref:
+
+```bash
+REPO_REF=5662cc8 bash scripts/get_clean_files.sh
+```
+
+If recovery changed tracked files and you want to discard local modifications:
+
+```bash
+git restore Changelog.md Readme.md agent.py heartbeat.py llm.py
+```
+
+Then run the health check (detects unresolved merge markers like `<<<<<<<` and runs syntax checks; uses `rg` when available and `grep` fallback otherwise):
+
+```bash
+bash scripts/verify_repo_health.sh
+```
+
+Quick one-file recovery:
+
+```bash
+wget -O agent.py https://raw.githubusercontent.com/lgomez22/PiAgent/5662cc8/agent.py
+python3 -m py_compile agent.py
+```
+
 ## Usage
 
 ### Interactive REPL
