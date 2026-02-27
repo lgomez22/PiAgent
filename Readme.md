@@ -249,11 +249,9 @@ The setting persists across sessions (saved to `~/.config/piagent/heartbeat.json
 This release candidate integrates the OpenClaw-inspired roadmap items:
 
 - **DM pairing policy**: `dm-policy set open|pairing|allowlist`, `dm-policy pair`, `dm-policy check`
-- **DM pairing parser hardening**: pairing checks now accept empty inbox payloads like `{"conversations":{"count":"0","items":[]}}` without false warnings
 - **Doctor diagnostics**: `doctor` and `--doctor`
 - **Model failover policy**: `model-failover status|set groq,template`
 - **Guardrail policy engine**: `guardrail set allow|require_approval|block`
-- **Threat-scan escalation in heartbeat**: flagged items are summarized with post IDs/titles and auto-engagement skips flagged posts
 - **Webhook trigger endpoint**: `webhook-listen` or `--webhook-listen` (default `127.0.0.1:18999/trigger`)
 
 Webhook example:
