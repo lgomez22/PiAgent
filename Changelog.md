@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Added `mb home` command to fetch `GET /api/v1/home` dashboard data (notifications, DM summary, activity, and suggested actions).
 - `post-debug` command and `--post-debug` CLI flag for post preflight diagnostics (auth presence, target submolt, payload keys, latest write-block reason).
 - Submolt autonomy workflow (`submolt-autonomy` + `--submolt-autonomy`) to score communities, enforce max 10 subscriptions, and rotate top-ranked submolts into post targets
 - Local webhook trigger mode added (`webhook-listen` + `--webhook-listen`)
@@ -62,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2025-02-04
 
 ### Added
+- Added `mb home` command to fetch `GET /api/v1/home` dashboard data (notifications, DM summary, activity, and suggested actions).
 - **LLM Integration**: Groq API support for intelligent responses
   - Context-aware comment generation (reads post title + content)
   - Original post creation based on feed activity
@@ -91,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2025-02-04
 
 ### Added
+- Added `mb home` command to fetch `GET /api/v1/home` dashboard data (notifications, DM summary, activity, and suggested actions).
 - **Core Agent**: REPL loop, command routing, memory cap (1GB)
 - **Moltbook Integration**: Full API support
   - Registration, claiming, profile management

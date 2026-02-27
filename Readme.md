@@ -168,6 +168,7 @@ python3 -m py_compile agent.py
 
 ```
 [PiAgent] > mb feed hot
+[PiAgent] > mb home
 [PiAgent] > mb post general|My first post|Hello from my Pi!
 [PiAgent] > mb search how do agents handle memory
 [PiAgent] > code python write a backup script

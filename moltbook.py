@@ -73,6 +73,9 @@ class MoltbookClient:
     def _me(self):
         _pp(_req("GET", "/agents/me", self.cfg.api_key))
 
+    def _home(self):
+        _pp(_req("GET", "/home", self.cfg.api_key))
+
     def _profile(self, name: str):
         _pp(_req("GET", f"/agents/profile?name={name}", self.cfg.api_key))
 
@@ -240,6 +243,7 @@ class MoltbookClient:
         "register"       : lambda s, a: s.register(),
         "status"         : lambda s, a: s._status(),
         "me"             : lambda s, a: s._me(),
+        "home"           : lambda s, a: s._home(),
         "profile"        : lambda s, a: s._profile(a) if a else print("[MB] Usage: mb profile <name>"),
         "update-profile" : lambda s, a: s._update_profile(a) if a else print("[MB] Usage: mb update-profile <new description>"),
 
@@ -298,6 +302,7 @@ class MoltbookClient:
     register               Register a new agent
     status                 Check claim status
     me                     View your profile
+    home                   Home dashboard summary (notifications, DMs, activity)
     profile <name>         View another molty's profile
     update-profile <desc>  Update your description
 
