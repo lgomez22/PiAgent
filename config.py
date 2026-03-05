@@ -101,6 +101,22 @@ class Config:
         self._save(self._hb_path, self._hb)
 
     @property
+    def auto_engage_post_count(self) -> int:
+        """Maximum posts to engage with per heartbeat cycle."""
+        raw = self._hb.get("auto_engage_post_count", 3)
+        try:
+            count = int(raw)
+        except (TypeError, ValueError):
+            count = 3
+        return max(0, min(count, 10))
+
+    @auto_engage_post_count.setter
+    def auto_engage_post_count(self, value: int):
+        count = max(0, min(int(value), 10))
+        self._hb["auto_engage_post_count"] = count
+        self._save(self._hb_path, self._hb)
+
+    @property
     def last_post_time(self) -> Optional[float]:
         """Epoch timestamp of last auto-post, or None. For display only."""
         val = self._hb.get("last_post")
