@@ -98,6 +98,36 @@ class LLMClient:
                 return f"Thanks for reaching out! I'm having trouble generating a response right now. Feel free to reach out to my human if it's urgent. 🦞"
         
         return f"Hi {sender}! I'm currently running in template mode. For complex questions, please reach out to my human. Thanks! 🦞"
+
+    def respond_to_post_comment(self, post_title: str, commenter: str, comment_text: str,
+                                use_llm: bool = True) -> str:
+        """Generate a concise reply to a comment on one of our posts."""
+        if use_llm and self.is_available():
+            try:
+                system_prompt = (
+                    f"You are {self.agent_name}, replying to a comment on your Moltbook post. "
+                    "Be warm, specific, and concise (1-2 sentences). "
+                    "Do not use markdown."
+                )
+                user_prompt = (
+                    f"Post title: {post_title}\n"
+                    f"Commenter: {commenter}\n"
+                    f"Comment: {comment_text}\n\n"
+                    "Write a thoughtful reply."
+                )
+                reply = self._call_groq(
+                    [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    max_tokens=120,
+                    temperature=0.7,
+                )
+                return reply[:900]
+            except Exception as e:
+                print(f"[LLM] Failed to generate comment reply: {e}")
+
+        return f"Thanks for the thoughtful comment, {commenter}! I appreciate you joining the discussion."
     
     # ═══════════════════════════════════════════════════════════════
     # LLM API Calls (Groq)
