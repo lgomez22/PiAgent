@@ -295,6 +295,7 @@ def _print_banner():
    status                System health summary
    engage-on/off         Toggle auto-engage
    engage-status         Check engage status
+   engage-count ...      Set/list posts per heartbeat engage
    doctor                Run health checks
    dm-policy ...         Pairing/allowlist DM
    guardrail ...         Action guardrails
@@ -466,6 +467,7 @@ def _run_threat_skill_sync():
 def _show_engage_status(cfg: Config):
     status = "ENABLED" if cfg.auto_engage else "DISABLED"
     print(f"[Agent] Auto-engagement: {status}")
+    print(f"[Agent] Engage post count: {cfg.auto_engage_post_count} per heartbeat")
     if cfg.last_post_time:
         hours_since = (time.time() - cfg.last_post_time) / 3600
         mins_since = hours_since * 60
@@ -491,6 +493,7 @@ def _show_status(cfg: Config):
     print(f"  Moltbook API key: {'configured' if cfg.api_key else 'missing'}")
     print(f"  Groq LLM: {'connected' if llm.is_available() else 'not configured'}")
     print(f"  Auto-engage: {'enabled' if cfg.auto_engage else 'disabled'}")
+    print(f"  Engage post count: {cfg.auto_engage_post_count}")
     print(f"  Last heartbeat: {heartbeat_text}")
     print(f"  Post targets: {', '.join(cfg.post_submolts)}")
     print(f"  Current target: {cfg.current_post_submolt()}")
@@ -934,6 +937,36 @@ def _handle_post_targets(cfg: Config, raw_args: str):
 
 
 
+
+
+def _handle_engage_count(cfg: Config, raw_args: str):
+    tokens = raw_args.split()
+    action = tokens[0].lower() if tokens else "status"
+
+    if action in ("status", "show", "list"):
+        print(f"[Agent] Engage post count: {cfg.auto_engage_post_count} per heartbeat")
+        print("        Usage: engage-count set <0-10>")
+        return
+
+    if action == "set":
+        if len(tokens) < 2:
+            print("[Agent] Usage: engage-count set <0-10>")
+            return
+        try:
+            count = int(tokens[1])
+        except ValueError:
+            print("[Agent] Usage: engage-count set <0-10>")
+            return
+        if count < 0 or count > 10:
+            print("[Agent] Value must be between 0 and 10.")
+            return
+        cfg.auto_engage_post_count = count
+        print(f"[Agent] ✓ Engage post count set to {cfg.auto_engage_post_count} per heartbeat")
+        return
+
+    print("[Agent] Usage: engage-count status|set <0-10>")
+
+
 def _extract_submolt_list(payload: dict) -> list:
     if not isinstance(payload, dict):
         return []
@@ -1208,6 +1241,9 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
     def cmd_engage_status():
         _show_engage_status(cfg)
 
+    def cmd_engage_count():
+        _handle_engage_count(cfg, " ".join(parts[1:]) if len(parts) > 1 else "status")
+
     def cmd_status():
         _show_status(cfg)
 
@@ -1300,6 +1336,7 @@ def _route(line: str, cfg: Config, mb: MoltbookClient, coder: CoderAssistant) ->
         "engage-on": cmd_engage_on,
         "engage-off": cmd_engage_off,
         "engage-status": cmd_engage_status,
+        "engage-count": cmd_engage_count,
         "status": cmd_status,
         "doctor": cmd_doctor,
         "dm-policy": cmd_dm_policy,
@@ -1466,6 +1503,10 @@ def _run_noninteractive_action(args, cfg: Config, mb: MoltbookClient):
         _show_engage_status(cfg)
         return True
 
+    if args.engage_count_set >= 0:
+        _handle_engage_count(cfg, f"set {args.engage_count_set}")
+        return True
+
     if args.post_targets_set:
         _handle_post_targets(cfg, f"set {args.post_targets_set}")
         return True
@@ -1555,6 +1596,7 @@ def main():
     parser.add_argument("--engage-on", action="store_true", help="Enable auto-engagement and exit")
     parser.add_argument("--engage-off", action="store_true", help="Disable auto-engagement and exit")
     parser.add_argument("--engage-status", action="store_true", help="Show engagement status and exit")
+    parser.add_argument("--engage-count-set", type=int, default=-1, help="Set engage post count (0-10) and exit")
     parser.add_argument("--post-targets-set", type=str, default="", help="Replace auto-post targets, comma-separated")
     parser.add_argument("--submolt-autonomy", action="store_true", help="Auto-curate subscriptions and post-targets")
     parser.add_argument("--status", action="store_true", help="Show one-line system snapshot and exit")
