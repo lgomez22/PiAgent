@@ -229,6 +229,18 @@ def _safe_int(value, default=0) -> int:
         return default
 
 
+def _extract_author_name(obj) -> str:
+    """Best-effort extraction of an author name from payload variants."""
+    if isinstance(obj, dict):
+        for key in ("name", "username", "handle", "display_name", "id"):
+            val = obj.get(key)
+            if val:
+                return str(val)
+    if obj:
+        return str(obj)
+    return ""
+
+
 def _detect_threat_labels(text: str) -> list:
     """Return matching threat labels for text using lightweight keyword rules."""
     low = (text or "").lower()
@@ -359,10 +371,18 @@ def run_heartbeat(cfg: Config, mb):
     print("[HB] Checking home endpoint...")
     home = _api("/home", key)
     home_post_activity = []
+    home_unread_dm = 0
     if isinstance(home, dict) and not home.get("_error"):
         account = home.get("your_account", {}) if isinstance(home.get("your_account"), dict) else {}
         notifications = _safe_int(account.get("unread_notification_count", 0))
         notes.append(f"🏠 Home: {notifications} unread notification(s).")
+
+        dm_counts = home.get("your_direct_messages", {}) if isinstance(home.get("your_direct_messages"), dict) else {}
+        home_unread_dm = _safe_int(dm_counts.get("unread_message_count", 0))
+        if home_unread_dm > unread:
+            unread = home_unread_dm
+        if home_unread_dm > 0:
+            notes.append(f"💬 Home: {home_unread_dm} unread DM message(s).")
 
         home_post_activity = home.get("activity_on_your_posts", [])
         if isinstance(home_post_activity, list):
@@ -461,17 +481,22 @@ def run_heartbeat(cfg: Config, mb):
 
             latest_inbound = None
             for comment in comments:
-                author_name = (comment.get("author", {}) or {}).get("name", "")
+                author_name = _extract_author_name(comment.get("author") or comment.get("from") or comment.get("sender"))
                 if author_name and author_name != (cfg.agent_name or ""):
                     latest_inbound = comment
                     break
 
-            if not latest_inbound:
-                continue
+            if latest_inbound:
+                commenter = _extract_author_name(latest_inbound.get("author") or latest_inbound.get("from") or latest_inbound.get("sender")) or "someone"
+                comment_text = latest_inbound.get("content") or latest_inbound.get("message") or ""
+                parent_id = latest_inbound.get("id")
+            else:
+                fallback_commenters = activity.get("latest_commenters", []) if isinstance(activity.get("latest_commenters"), list) else []
+                commenter = str(fallback_commenters[0]) if fallback_commenters else "someone"
+                comment_text = activity.get("preview", "New activity on your post")
+                parent_id = None
+                print(f"[HB]    ℹ️ No readable inbound comment ID for {post_id}; posting top-level follow-up")
 
-            commenter = (latest_inbound.get("author", {}) or {}).get("name", "someone")
-            comment_text = latest_inbound.get("content", "")
-            parent_id = latest_inbound.get("id")
             reply_text = llm.respond_to_post_comment(post_title, commenter, comment_text, use_llm=True)
 
             body = {"content": reply_text}
@@ -502,7 +527,7 @@ def run_heartbeat(cfg: Config, mb):
                     if msg.get("from_self") is True or msg.get("is_mine") is True:
                         continue
                     sender = msg.get("from") or msg.get("sender") or msg.get("author") or {}
-                    sender_name = sender.get("name") if isinstance(sender, dict) else str(sender)
+                    sender_name = _extract_author_name(sender)
                     if sender_name == (cfg.agent_name or ""):
                         continue
                     latest_incoming = msg
@@ -512,7 +537,7 @@ def run_heartbeat(cfg: Config, mb):
                     continue
 
                 sender = latest_incoming.get("from") or latest_incoming.get("sender") or latest_incoming.get("author") or {}
-                sender_name = sender.get("name") if isinstance(sender, dict) else str(sender or "friend")
+                sender_name = _extract_author_name(sender) or "friend"
                 incoming_text = latest_incoming.get("message") or latest_incoming.get("content") or ""
                 dm_reply = llm.respond_to_dm(incoming_text, sender_name, use_llm=True)
 
