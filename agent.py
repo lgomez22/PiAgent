@@ -1623,7 +1623,7 @@ def main():
 
     cfg = Config()
     mb = MoltbookClient(cfg)
-    coder = CoderAssistant()
+    coder = CoderAssistant(cfg)
 
     if _run_noninteractive_action(args, cfg, mb):
         return
