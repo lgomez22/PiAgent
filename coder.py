@@ -6,14 +6,19 @@ For other languages it generates the code and notes how to run it,
 since compiling/interpreting other langs on a bare Pi may need extra setup.
 
 Design goals:
-  • Zero external dependencies (no LLM API call — runs offline on Pi)
-  • Template + keyword matching for common tasks
+  • Groq-assisted generation when API key is configured
+  • Offline-safe fallback via template + keyword matching
   • Extensible: add new templates or languages easily
   • Stays well under the 1 GB memory cap
 """
 
+import json
 import textwrap
+import urllib.error
+import urllib.request
 from typing import Optional, Tuple
+
+from config import Config
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +342,19 @@ TEMPLATES = [
 ]
 
 
+def _strip_code_fences(text: str) -> str:
+    """Remove markdown code fences if the model returns them."""
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        if lines:
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+    return raw
+
+
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
@@ -435,11 +453,68 @@ def _generic_skeleton(lang: str, task: str) -> str:
 
 
 class CoderAssistant:
+    def __init__(self, cfg: Optional[Config] = None):
+        self.cfg = cfg
+        self.groq_api_key = cfg.groq_api_key if cfg else None
+
+    def _llm_available(self) -> bool:
+        return bool(self.groq_api_key)
+
+    def _call_groq(self, messages: list, max_tokens: int = 900, temperature: float = 0.2) -> str:
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST")
+        req.add_header("Authorization", f"Bearer {self.groq_api_key}")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("User-Agent", "PiAgent-Coder/0.1 (Raspberry Pi; Python/urllib)")
+
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                data = json.loads(r.read().decode())
+            return data["choices"][0]["message"]["content"].strip()
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"Groq HTTP {e.code}: {e.read().decode(errors='ignore')[:250]}")
+        except Exception as e:
+            raise RuntimeError(f"Groq request failed: {e}")
+
+    def _llm_generate_code(self, lang: str, task: str) -> str:
+        shebang = LANG_INFO.get(lang, LANG_INFO["python"]).get("shebang", "")
+        system_prompt = (
+            "You generate production-friendly scripts for Raspberry Pi environments. "
+            "Return only code, no markdown, no explanations. "
+            "Prefer standard library and low-memory approaches."
+        )
+        user_prompt = (
+            f"Language: {lang}\n"
+            f"Task: {task or 'general script'}\n"
+            "Constraints: include minimal comments, handle basic errors, keep script runnable as-is.\n"
+            f"If appropriate, start with shebang: {shebang or '(none)'}"
+        )
+        out = self._call_groq(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+        code = _strip_code_fences(out)
+        if not code:
+            raise RuntimeError("Empty code from Groq")
+        if shebang and not code.startswith("#!"):
+            code = f"{shebang}\n" + code
+        if not code.endswith("\n"):
+            code += "\n"
+        return code
+
     def handle(self, text: str):
         lang, task = _detect_lang(text)
         info = LANG_INFO.get(lang, LANG_INFO["python"])
 
-        # Resolve alias
         if lang in ("shell", "sh"):
             lang = "bash"
 
@@ -449,36 +524,41 @@ class CoderAssistant:
         print(f"  📝  Code Assistant — {lang.upper()}")
         print(f"{'─' * 55}\n")
 
-        if template:
-            print(f"  Matched template: {template['description']}\n")
-            if lang in template:
-                # Template has a version in the requested language — use it directly
-                code = template[lang]
-            else:
-                # Template exists but not for this lang — generate a skeleton
-                # in the requested language and hint at the Python/Bash versions below
-                print(f"  ⚠️  No {lang} version in template — generating {lang} skeleton.\n")
-                code = _generic_skeleton(lang, task or template["description"])
-        else:
-            print(f"  No exact template match. Generating skeleton for: \"{task or 'general script'}\"\n")
-            code = _generic_skeleton(lang, task or "general script")
+        used_llm = False
+        code = ""
 
-        # Print the code
+        if self._llm_available():
+            try:
+                code = self._llm_generate_code(lang, task)
+                used_llm = True
+                print("  🤖 Generated with Groq LLM\n")
+            except Exception as e:
+                print(f"  ⚠️  Groq generation failed, using templates: {e}\n")
+
+        if not code:
+            if template:
+                print(f"  Matched template: {template['description']}\n")
+                if lang in template:
+                    code = template[lang]
+                else:
+                    print(f"  ⚠️  No {lang} version in template — generating {lang} skeleton.\n")
+                    code = _generic_skeleton(lang, task or template["description"])
+            else:
+                print(f"  No exact template match. Generating skeleton for: \"{task or 'general script'}\"\n")
+                code = _generic_skeleton(lang, task or "general script")
+
         print(f"  {'─' * 50}")
         for line in code.splitlines():
             print(f"    {line}")
         print(f"  {'─' * 50}\n")
 
-        # Run hint
         print(f"  💡 Run: {info['run_hint']}")
         if not info["native"]:
-            print(f"  ⚠️  This language is NOT native to RPi — see install notes above.")
+            print("  ⚠️  This language is NOT native to RPi — see install notes above.")
         print()
 
-        # If user asked for a non-Python/Bash language and we have a template,
-        # also show how it would look in that language as a suggestion
-        if lang not in ("python", "bash") and template:
-            print(f"  💡 Tip: For best RPi compatibility, consider the Python or Bash version:")
+        if (not used_llm) and lang not in ("python", "bash") and template:
+            print("  💡 Tip: For best RPi compatibility, consider the Python or Bash version:")
             for alt in ("python", "bash"):
                 if alt in template:
                     print(f"\n      === {alt.upper()} version ===")

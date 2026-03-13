@@ -182,6 +182,65 @@ def _api_with_body(method: str, path: str, api_key: str, body: dict) -> dict:
         return {"_error": str(e)}
 
 
+def _extract_dm_conversations(payload) -> list:
+    """Best-effort normalization for DM conversation API variants."""
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+
+    for key in ("conversations", "data", "items", "results"):
+        candidate = payload.get(key)
+        if isinstance(candidate, list):
+            return candidate
+        if isinstance(candidate, dict):
+            for nested_key in ("conversations", "items", "results", "data", "rows"):
+                nested = candidate.get(nested_key)
+                if isinstance(nested, list):
+                    return nested
+
+    rows = payload.get("rows")
+    return rows if isinstance(rows, list) else []
+
+
+def _extract_messages(conversation_payload) -> list:
+    """Normalize DM conversation detail payload to a list of messages."""
+    if isinstance(conversation_payload, list):
+        return conversation_payload
+    if not isinstance(conversation_payload, dict):
+        return []
+    for key in ("messages", "data", "items", "results"):
+        value = conversation_payload.get(key)
+        if isinstance(value, list):
+            return value
+        if isinstance(value, dict):
+            for nested_key in ("messages", "items", "results", "data", "rows"):
+                nested = value.get(nested_key)
+                if isinstance(nested, list):
+                    return nested
+    rows = conversation_payload.get("rows")
+    return rows if isinstance(rows, list) else []
+
+
+def _safe_int(value, default=0) -> int:
+    try:
+        return int(str(value).strip())
+    except Exception:
+        return default
+
+
+def _extract_author_name(obj) -> str:
+    """Best-effort extraction of an author name from payload variants."""
+    if isinstance(obj, dict):
+        for key in ("name", "username", "handle", "display_name", "id"):
+            val = obj.get(key)
+            if val:
+                return str(val)
+    if obj:
+        return str(obj)
+    return ""
+
+
 def _detect_threat_labels(text: str) -> list:
     """Return matching threat labels for text using lightweight keyword rules."""
     low = (text or "").lower()
@@ -256,32 +315,24 @@ def run_heartbeat(cfg: Config, mb):
         return
 
     key = cfg.api_key
-    llm = LLMClient(cfg)  # Initialize LLM client
-    issues = []          # things that need the user's attention
-    notes  = []          # informational
-    
-    # Show LLM status
+    llm = LLMClient(cfg)
+    issues = []
+    notes = []
+
     if llm.is_available():
         notes.append("🤖 LLM: Groq API connected")
     else:
         notes.append("🤖 LLM: Template mode (no Groq key)")
 
-    # ── 1. Skill version check ───────────────────────────────────────
-    # Note: We check skill.json for the version, NOT the skill.md frontmatter,
-    # because skill.json is the authoritative metadata file.
     print("[HB] Checking skill version...")
     ver_data = _fetch_json("https://www.moltbook.com/skill.json")
     remote_ver = ver_data.get("version", "unknown")
     if remote_ver != _LOCAL_SKILL_VERSION and "_error" not in ver_data:
         notes.append(f"⚡ Skill update available: {_LOCAL_SKILL_VERSION} → {remote_ver}")
-        
-        # Auto-download the new skill.md for reference
         try:
-            import urllib.request
             from pathlib import Path
             skill_cache = Path.home() / ".config" / "piagent" / "skill_cache"
             skill_cache.mkdir(parents=True, exist_ok=True)
-            
             skill_md_path = skill_cache / f"skill_{remote_ver}.md"
             if not skill_md_path.exists():
                 print(f"[HB]    Downloading skill.md v{remote_ver}...")
@@ -296,7 +347,6 @@ def run_heartbeat(cfg: Config, mb):
     else:
         notes.append(f"✅ Skill version {remote_ver} is current.")
 
-    # ── 2. Claim status ──────────────────────────────────────────────
     print("[HB] Checking claim status...")
     status = _api("/agents/status", key)
     st = status.get("status", "unknown")
@@ -307,47 +357,72 @@ def run_heartbeat(cfg: Config, mb):
     else:
         notes.append(f"❓ Status unknown: {st}")
 
-    # ── 3. DM check ──────────────────────────────────────────────────
     print("[HB] Checking DMs...")
     dm = _api("/agents/dm/check", key)
-    pending = dm.get("pending_requests", 0)
-    unread  = dm.get("unread_messages", 0)
+    pending = _safe_int(dm.get("pending_requests", 0))
+    unread = _safe_int(dm.get("unread_messages", 0))
     if pending > 0:
-        issues.append(f"📬 {pending} pending DM request(s) — owner approval needed! "
-                      f"Run: mb dm-requests")
+        issues.append(f"📬 {pending} pending DM request(s) — owner approval needed! Run: mb dm-requests")
     if unread > 0:
-        notes.append(f"💬 {unread} unread DM message(s). Run: mb dm-convos")
+        notes.append(f"💬 {unread} unread DM message(s).")
     if pending == 0 and unread == 0:
         notes.append("✅ No DM activity.")
 
-    # ── 4. Feed check ────────────────────────────────────────────────
+    print("[HB] Checking home endpoint...")
+    home = _api("/home", key)
+    home_post_activity = []
+    home_unread_dm = 0
+    if isinstance(home, dict) and not home.get("_error"):
+        account = home.get("your_account", {}) if isinstance(home.get("your_account"), dict) else {}
+        notifications = _safe_int(account.get("unread_notification_count", 0))
+        notes.append(f"🏠 Home: {notifications} unread notification(s).")
+
+        dm_counts = home.get("your_direct_messages", {}) if isinstance(home.get("your_direct_messages"), dict) else {}
+        home_unread_dm = _safe_int(dm_counts.get("unread_message_count", 0))
+        if home_unread_dm > unread:
+            unread = home_unread_dm
+        if home_unread_dm > 0:
+            notes.append(f"💬 Home: {home_unread_dm} unread DM message(s).")
+
+        home_post_activity = home.get("activity_on_your_posts", [])
+        if isinstance(home_post_activity, list):
+            new_threads = [a for a in home_post_activity if _safe_int(a.get("new_notification_count", 0)) > 0]
+            if new_threads:
+                notes.append(f"🔔 Home detected updates on {len(new_threads)} of your post(s).")
+
+        suggestions = home.get("what_to_do_next", [])
+        if isinstance(suggestions, list) and suggestions:
+            notes.append("🧭 What to do next:")
+            for suggestion in suggestions[:5]:
+                notes.append(f"    • {suggestion}")
+    else:
+        notes.append("⚠️ Home endpoint unavailable; continuing with legacy checks.")
+
     print("[HB] Checking feed...")
     feed = _api("/feed?sort=new&limit=10", key)
     posts = feed.get("posts", feed.get("data", []))
-    engagement_targets = []  # Cache posts for engagement after checks
-    
+    engagement_targets = []
+    max_engage_targets = cfg.auto_engage_post_count
+
     if isinstance(posts, list) and posts:
         notes.append(f"📰 {len(posts)} post(s) in your feed.")
-        # surface top few titles for the user
         for i, p in enumerate(posts[:5]):
-            title   = p.get("title", "(no title)")
-            author  = p.get("author", {}).get("name", "?")
+            title = p.get("title", "(no title)")
+            author = p.get("author", {}).get("name", "?")
             upvotes = p.get("upvotes", 0)
-            pid     = p.get("id", "")
+            pid = p.get("id", "")
             notes.append(f"    [{i+1}] \"{title}\" by {author} ({upvotes} ▲) — id: {pid}")
-            
-            # Cache first 3 posts for engagement (don't overwhelm)
-            if i < 3 and pid:
+
+            if len(engagement_targets) < max_engage_targets and pid:
                 engagement_targets.append({
                     "id": pid,
                     "title": title,
                     "author": author,
-                    "content": p.get("content", "")  # Include content for LLM
+                    "content": p.get("content", ""),
                 })
     else:
         notes.append("📰 Feed is empty or returned no posts.")
 
-    # ── 4b. Optional threat scan (moltThreats-style) ───────────────
     flagged_post_ids = set()
     if cfg.threat_scan_enabled:
         print("[HB] Running threat scan (moltThreats)...")
@@ -369,7 +444,6 @@ def run_heartbeat(cfg: Config, mb):
         else:
             notes.append("🛡️ Threat scan: no suspicious content detected in sampled posts/comments.")
 
-    # ── 5. Print summary ─────────────────────────────────────────────
     print("\n" + "═" * 55)
     print("  🦞  HEARTBEAT SUMMARY")
     print("═" * 55)
@@ -385,8 +459,96 @@ def run_heartbeat(cfg: Config, mb):
 
     print("═" * 55 + "\n")
 
-    # ── 6. Automated engagement ──────────────────────────────────────
-    if engagement_targets and cfg.auto_engage:
+    post_updates = []
+    if isinstance(home_post_activity, list):
+        post_updates = [a for a in home_post_activity if _safe_int(a.get("new_notification_count", 0)) > 0]
+
+    has_inbound_activity = bool(post_updates) or unread > 0
+
+    if has_inbound_activity:
+        print("[HB] ✉️ Prioritizing replies from /home + DMs...")
+
+        for activity in post_updates[:5]:
+            post_id = activity.get("post_id", "")
+            post_title = activity.get("post_title", "your post")
+            if not post_id:
+                continue
+
+            comments_payload = _api(f"/posts/{post_id}/comments?sort=new&limit=20", key)
+            comments = comments_payload.get("comments", comments_payload.get("data", [])) if isinstance(comments_payload, dict) else []
+            if not isinstance(comments, list):
+                continue
+
+            latest_inbound = None
+            for comment in comments:
+                author_name = _extract_author_name(comment.get("author") or comment.get("from") or comment.get("sender"))
+                if author_name and author_name != (cfg.agent_name or ""):
+                    latest_inbound = comment
+                    break
+
+            if latest_inbound:
+                commenter = _extract_author_name(latest_inbound.get("author") or latest_inbound.get("from") or latest_inbound.get("sender")) or "someone"
+                comment_text = latest_inbound.get("content") or latest_inbound.get("message") or ""
+                parent_id = latest_inbound.get("id")
+            else:
+                fallback_commenters = activity.get("latest_commenters", []) if isinstance(activity.get("latest_commenters"), list) else []
+                commenter = str(fallback_commenters[0]) if fallback_commenters else "someone"
+                comment_text = activity.get("preview", "New activity on your post")
+                parent_id = None
+                print(f"[HB]    ℹ️ No readable inbound comment ID for {post_id}; posting top-level follow-up")
+
+            reply_text = llm.respond_to_post_comment(post_title, commenter, comment_text, use_llm=True)
+
+            body = {"content": reply_text}
+            if parent_id:
+                body["parent_id"] = parent_id
+
+            reply_resp = _api_with_body("POST", f"/posts/{post_id}/comments", key, body)
+            if reply_resp.get("success"):
+                print(f"[HB]    ✓ Replied on post '{post_title[:50]}'")
+                _api_with_body("POST", f"/notifications/read-by-post/{post_id}", key, {})
+            else:
+                print(f"[HB]    ⚠️ Failed post reply for {post_id}: {reply_resp.get('error', 'unknown')}")
+
+        if unread > 0:
+            conv_payload = _api("/agents/dm/conversations", key)
+            conversations = _extract_dm_conversations(conv_payload)
+            for conv in conversations[:5]:
+                conv_id = conv.get("id") or conv.get("conversation_id")
+                if not conv_id:
+                    continue
+
+                detail = _api(f"/agents/dm/conversations/{conv_id}", key)
+                messages = _extract_messages(detail)
+                latest_incoming = None
+                for msg in reversed(messages):
+                    if not isinstance(msg, dict):
+                        continue
+                    if msg.get("from_self") is True or msg.get("is_mine") is True:
+                        continue
+                    sender = msg.get("from") or msg.get("sender") or msg.get("author") or {}
+                    sender_name = _extract_author_name(sender)
+                    if sender_name == (cfg.agent_name or ""):
+                        continue
+                    latest_incoming = msg
+                    break
+
+                if not latest_incoming:
+                    continue
+
+                sender = latest_incoming.get("from") or latest_incoming.get("sender") or latest_incoming.get("author") or {}
+                sender_name = _extract_author_name(sender) or "friend"
+                incoming_text = latest_incoming.get("message") or latest_incoming.get("content") or ""
+                dm_reply = llm.respond_to_dm(incoming_text, sender_name, use_llm=True)
+
+                send_resp = _api_with_body("POST", f"/agents/dm/conversations/{conv_id}/send", key, {"message": dm_reply})
+                if send_resp.get("success"):
+                    print(f"[HB]    ✓ Replied to DM from {sender_name}")
+                else:
+                    print(f"[HB]    ⚠️ Failed DM reply ({conv_id}): {send_resp.get('error', 'unknown')}")
+
+        print("[HB] ✓ Reply-first workflow complete\n")
+    elif engagement_targets and cfg.auto_engage:
         if flagged_post_ids:
             before = len(engagement_targets)
             engagement_targets = [p for p in engagement_targets if p.get("id") not in flagged_post_ids]
@@ -395,86 +557,73 @@ def run_heartbeat(cfg: Config, mb):
                 print(f"[HB] 🛡️ Skipping {skipped} flagged post(s) during auto-engagement.")
         print("[HB] 🤖 Automated engagement starting...")
         engaged_count = 0
-        
+
         for target in engagement_targets:
             post_id = target["id"]
-            author  = target["author"]
-            title   = target["title"][:50] + "..." if len(target["title"]) > 50 else target["title"]
+            author = target["author"]
+            title = target["title"][:50] + "..." if len(target["title"]) > 50 else target["title"]
             full_title = target["title"]
             content = target.get("content", "")
-            
-            # Use LLM to generate contextual comment
+
             print(f"[HB]    Engaging with: \"{title}\" by {author}")
             comment_text = llm.generate_comment(full_title, content, author, use_llm=True)
-            
+
             print(f"[HB]       💬 Commenting: {comment_text[:60]}{'...' if len(comment_text) > 60 else ''}")
             comment_resp = _post_comment(post_id, comment_text, key)
-            
+
             if comment_resp.get("success"):
-                print(f"[HB]       ✓ Comment posted")
+                print("[HB]       ✓ Comment posted")
             elif comment_resp.get("error"):
                 error_msg = comment_resp.get("error", "unknown")
                 if "429" in str(comment_resp.get("status_code", "")):
                     retry_after = comment_resp.get("retry_after_seconds", "?")
                     print(f"[HB]       ⏳ Rate limited (retry in {retry_after}s) — skipping remaining posts")
-                    break  # Stop engaging if we hit rate limit
+                    break
                 else:
                     print(f"[HB]       ⚠️  Comment failed: {error_msg}")
-                    continue  # Try next post
-            
-            # Small delay to avoid rapid-fire requests
+                    continue
+
             time.sleep(1.5)
-            
-            # Upvote the post
-            print(f"[HB]       ▲ Upvoting...")
+
+            print("[HB]       ▲ Upvoting...")
             upvote_resp = _upvote_post(post_id, key)
-            
+
             if upvote_resp.get("success"):
-                print(f"[HB]       ✓ Upvoted")
+                print("[HB]       ✓ Upvoted")
                 engaged_count += 1
             elif upvote_resp.get("error"):
                 error_msg = upvote_resp.get("error", "unknown")
                 print(f"[HB]       ⚠️  Upvote failed: {error_msg}")
-            
-            # Wait 20+ seconds before next comment (Moltbook rate limit)
-            if target != engagement_targets[-1]:  # Don't wait after last one
-                print(f"[HB]       ⏸️  Waiting 21s (rate limit)...")
-                time.sleep(21)
-        
-        print(f"[HB] ✓ Engaged with {engaged_count}/{len(engagement_targets)} posts")
-        print()
 
-    # ── 7. Daily post creation ───────────────────────────────────────
-    # Note: We rely on Moltbook's 30-minute rate limit (enforced by API)
-    # No local cooldown check - if the API allows it, we post
-    if cfg.auto_engage:
+            if target != engagement_targets[-1]:
+                print("[HB]       ⏸️  Waiting 21s (rate limit)...")
+                time.sleep(21)
+
+        print(f"[HB] ✓ Engaged with {engaged_count}/{len(engagement_targets)} posts\n")
+
         print("[HB] 📝 Creating a new post...")
-        
-        # Use LLM to generate post with context from feed
         title, content = llm.generate_post(recent_activity=posts[:5] if posts else None, use_llm=True)
         submolt = cfg.current_post_submolt()
-        
+
         print(f"[HB]    Topic: \"{title}\"")
         print(f"[HB]    Posting to m/{submolt}...")
-        
+
         post_resp = _create_post(submolt, title, content, key)
-        
+
         if post_resp.get("success"):
             post_id = post_resp.get("post", {}).get("id", "unknown")
             print(f"[HB]    ✓ Post created! ID: {post_id}")
             print(f"[HB]    📍 View at: https://www.moltbook.com/m/{submolt}/{post_id}")
-            cfg.touch_last_post()  # Track for engage-status display
+            cfg.touch_last_post()
             cfg.advance_post_submolt()
         elif "429" in str(post_resp.get("error", "")) or post_resp.get("error", "").lower().find("cooldown") >= 0:
-            # Rate limited (30-minute cooldown from last post)
             retry_mins = post_resp.get("retry_after_minutes", "?")
             print(f"[HB]    ⏳ Post cooldown active — can post again in {retry_mins} minutes")
         else:
             error_msg = post_resp.get("error", "unknown")
             print(f"[HB]    ⚠️  Post failed: {error_msg}")
-        
         print()
 
-    # ── 8. Stamp timestamp ───────────────────────────────────────────
     cfg.touch_heartbeat()
     print("[HB] ✅ Heartbeat complete. Timestamp saved.")
+
